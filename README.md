@@ -87,7 +87,11 @@ the email is the channel of record. Times are Central.
 - `policy_triage_monitor_stopped.json` — a metric-absence policy: no tick counted for
   45 minutes means the monitor itself is dead (Scheduler stopped, service failing). It
   notifies when it opens and when it closes. Series are summed across revisions so a deploy
-  does not look like a stop.
+  does not look like a stop. It sets no custom subject: a metric policy cannot put the
+  incident state into a custom subject, so the "stopped" and "recovered" emails would share
+  it; with Google's default subject the two are told apart in the inbox.
+- The policy files are plain ASCII on purpose: `gcloud` on Windows reads them in the
+  system code page, and an em dash in a display name arrived in Google as `?`.
 
 Recipients (one email channel, four SMS channels) live in Cloud Monitoring, not here.
 

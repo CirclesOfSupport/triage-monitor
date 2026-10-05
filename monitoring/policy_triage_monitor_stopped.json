@@ -1,5 +1,5 @@
 {
-  "displayName": "Early Alert triage-monitor stopped — no tick logged for 45 minutes",
+  "displayName": "Early Alert triage-monitor stopped - no tick logged for 45 minutes",
   "combiner": "OR",
   "severity": "CRITICAL",
   "enabled": true,
@@ -17,17 +17,21 @@
           }
         ],
         "duration": "2700s",
-        "trigger": { "count": 1 }
+        "trigger": {
+          "count": 1
+        }
       }
     }
   ],
   "alertStrategy": {
     "autoClose": "1800s",
-    "notificationPrompts": ["OPENED", "CLOSED"]
+    "notificationPrompts": [
+      "OPENED",
+      "CLOSED"
+    ]
   },
   "documentation": {
     "mimeType": "text/markdown",
-    "subject": "Early Alert: the triage-silence monitor has stopped",
     "content": "The triage-silence monitor (Cloud Run service triage-monitor) has not logged a tick for 45 minutes. It normally runs every 5 minutes from Cloud Scheduler job triage-monitor-tick. While it is stopped, nobody is watching whether triage determinations are being made.\n\nCheck, in order: the Scheduler job is enabled and running; the service's latest revision is serving; the service's logs for an error line.\n\nWhat the monitor checks: the triage table in BigQuery (early-alert-responses.RESPONSES.triage-message-data), the latest determination_time against requests with no determination."
   }
 }

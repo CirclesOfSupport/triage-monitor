@@ -1,5 +1,5 @@
 {
-  "displayName": "Early Alert triage silent — no determination for 90+ min with 3+ requests waiting (triage-monitor)",
+  "displayName": "Early Alert triage silent - no determination for 90+ min with 3+ requests waiting (triage-monitor)",
   "combiner": "OR",
   "severity": "CRITICAL",
   "enabled": true,
@@ -20,7 +20,9 @@
     }
   ],
   "alertStrategy": {
-    "notificationRateLimit": { "period": "300s" },
+    "notificationRateLimit": {
+      "period": "300s"
+    },
     "autoClose": "1800s"
   },
   "documentation": {
