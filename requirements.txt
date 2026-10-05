@@ -1,0 +1,4 @@
+Flask==3.0.3
+gunicorn==22.0.0
+google-cloud-bigquery==3.25.0
+tzdata==2024.1

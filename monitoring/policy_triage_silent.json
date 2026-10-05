@@ -1,0 +1,31 @@
+{
+  "displayName": "Early Alert triage silent — no determination for 90+ min with 3+ requests waiting (triage-monitor)",
+  "combiner": "OR",
+  "severity": "CRITICAL",
+  "enabled": true,
+  "conditions": [
+    {
+      "displayName": "triage-monitor wrote a message (alert, repeat, ended or test)",
+      "conditionMatchedLog": {
+        "filter": "resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"triage-monitor\" AND jsonPayload.event=\"notify\"",
+        "labelExtractors": {
+          "kind": "EXTRACT(jsonPayload.kind)",
+          "subject": "EXTRACT(jsonPayload.subject)",
+          "headline": "EXTRACT(jsonPayload.headline)",
+          "last_determination": "EXTRACT(jsonPayload.last_determination)",
+          "waiting": "EXTRACT(jsonPayload.waiting)",
+          "checks": "EXTRACT(jsonPayload.checks)"
+        }
+      }
+    }
+  ],
+  "alertStrategy": {
+    "notificationRateLimit": { "period": "300s" },
+    "autoClose": "1800s"
+  },
+  "documentation": {
+    "mimeType": "text/markdown",
+    "subject": "${log.extracted_label.subject}",
+    "content": "${log.extracted_label.headline}\n\nLast determination: ${log.extracted_label.last_determination}\nRequests waiting 30 minutes or more: ${log.extracted_label.waiting}\n\nWhat this checks: ${log.extracted_label.checks}\n\nMessage kind: ${log.extracted_label.kind}"
+  }
+}
