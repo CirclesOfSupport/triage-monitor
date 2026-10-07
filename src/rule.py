@@ -35,12 +35,12 @@ WAITING_COUNT = 3
 TICK = timedelta(minutes=5)
 REPEAT = timedelta(hours=2)
 
+# Plain words for the people who read the alert. The table and its columns are named in
+# the README's first section, which is where a change of mechanism is carried out.
 CHECKS = (
-    "This monitor reads the triage table in BigQuery "
-    "(early-alert-responses.RESPONSES.triage-message-data): the latest "
-    "determination_time against requests that have no determination. "
-    "If the way determinations are recorded changes (survey, write path or "
-    "table), this monitor must be re-pointed."
+    "the time of the last triage determination recorded in our database, against "
+    "requests still waiting. If the way determinations are recorded changes, this "
+    "monitor must be updated."
 )
 
 
@@ -212,9 +212,11 @@ def _duration(minutes: float) -> str:
     return f"{m} min"
 
 
-def compose(d: Decision, test: bool = False) -> Optional[dict]:
+def compose(d: Decision, test: bool = False, email_line: Optional[str] = None) -> Optional[dict]:
     """The words of the message for a decision, or None when nothing is due.
     Keys: kind, subject, headline, last_determination, waiting, checks.
+    email_line: one sentence with the hourly email check's latest result; it is added to
+    an alert and to a reminder (an ended message has nothing to diagnose).
     """
     if d.kind is None:
         return None
@@ -251,11 +253,13 @@ def compose(d: Decision, test: bool = False) -> Optional[dict]:
                 f"nothing will be sent until it checks again at 10:30 AM CT."
             )
         else:
-            subject = f"{prefix}Early Alert: triage alert ended — fewer than 3 requests waiting"
+            subject = f"{prefix}Early Alert: triage NOT resolved — alert ended, fewer than 3 requests waiting"
             headline = (
                 f"Fewer than 3 requests are now waiting (requests older than 14 hours are no longer counted); "
                 f"no determination since {last}."
             )
+    if email_line and d.kind in ("alert", "repeat"):
+        headline = f"{headline} {email_line}"
     return {
         "kind": d.kind,
         "subject": subject,
