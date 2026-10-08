@@ -288,8 +288,9 @@ The caller needs Cloud Run Invoker on the service. The four test bodies:
   line and by email, with the live numbers.
 - `email_misses`: the email check behaves as if this hour's two tests were missing. The
   mailbox is really read; a TEST "EMAIL NOT ARRIVING" goes out; the next scheduled tick looks
-  again, finds the hour's real test and sends the TEST "EMAIL ARRIVING AGAIN". Run it a few
-  minutes after the hour's test has arrived.
+  again, finds the hour's real test and sends the TEST "EMAIL ARRIVING AGAIN". Both name the
+  last test that arrived before this hour and no send times, so every time in them is real.
+  Run it a few minutes after the hour's test has arrived.
 - `email_refused`: asks TextIt to start a flow that does not exist. The refusal is logged
   (`action=could_not_run`) and shows in the next triage alert's line; no message goes out.
 

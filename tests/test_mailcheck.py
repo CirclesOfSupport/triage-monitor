@@ -317,9 +317,23 @@ def test_force_misses_sends_a_test_alert_then_the_next_tick_sends_the_all_clear(
     w.now = H0 + 12 * MIN
     logs, msgs = mc.force_misses(w.now)
     assert [m.kind for m in msgs] == ["email_alert"] and msgs[0].test is True
+    # every time a test message names is real: no invented send times, and the last arrival
+    # before this hour (here none), never this hour's own test
+    assert msgs[0].sent == () and msgs[0].since is None
     logs, msgs = run(mc, w, H0 + 15 * MIN, H0 + 15 * MIN)
     assert [m.kind for m in msgs] == ["email_ended"] and msgs[0].test is True
+    assert msgs[0].since is None and msgs[0].arrived >= H0
     assert len(w.started) == 1 and mc.episode is None
+
+
+def test_force_misses_names_the_last_arrival_before_this_hour():
+    w = World()
+    mc = make(w)
+    run(mc, w, H0 - 60 * MIN, H0 + 10 * MIN)  # the hour before and this hour both arrived
+    before = max(a.arrived for a in w.box if a.arrived < H0)
+    logs, msgs = mc.force_misses(H0 + 12 * MIN)
+    assert msgs[0].since == before and msgs[0].sent == ()
+    assert mc.last_arrival >= H0  # the real record is untouched
 
 
 def test_force_misses_sends_nothing_when_the_mailbox_cannot_be_read():

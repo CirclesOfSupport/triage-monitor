@@ -283,14 +283,19 @@ def test_switch_alert_then_ended_sends_two_test_emails_that_cannot_be_confused(s
 
 def test_switch_email_misses_then_the_next_tick_sends_the_all_clear(svc, monkeypatch, capsys):
     configure(monkeypatch)
+    svc.box.append(Arrival(reference(NOON - 60 * MIN), NOON - 60 * MIN + timedelta(seconds=30)))
     main.run_tick(NOON, reader=quiet)
     svc.box.append(Arrival(reference(NOON), NOON + timedelta(seconds=40)))
     main.run_tick(NOON + 10 * MIN, reader=quiet)
     main.run_tick(NOON + 12 * MIN, reader=quiet, test="email_misses")
     main.run_tick(NOON + 15 * MIN, reader=quiet)
     subjects = [m["subject"] for m in svc.sent]
-    assert subjects == ["[Early Alert] TEST - EMAIL NOT ARRIVING: TextIt test emails, none since 12:00 PM CT",
+    assert subjects == ["[Early Alert] TEST - EMAIL NOT ARRIVING: TextIt test emails, none since 11:00 AM CT",
                         "[Early Alert] TEST - EMAIL ARRIVING AGAIN: TextIt test email at 12:00 PM CT"]
+    bodies = [m["body"] for m in svc.sent]
+    # every time in a test message is real: no invented send times
+    assert "Two tests were sent" not in bodies[0] and "The last test that arrived: 11:00 AM CT." in bodies[0]
+    assert "arrived at 12:00 PM CT" in bodies[1] and "None had arrived since 11:00 AM CT." in bodies[1]
     assert len(svc.starts) == 1
 
 

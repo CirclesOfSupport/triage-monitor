@@ -244,17 +244,22 @@ class MailCheck:
                 logs.append({"action": "clean_error", "severity": "WARNING", "tick": t.isoformat(),
                              "reason": f"{type(exc).__name__}: {exc}"[:200]})
 
-    def _not_arriving(self, t: datetime, hour: datetime, logs: List[dict], msgs: List[Message], test: bool = False) -> None:
+    def _not_arriving(self, t: datetime, hour: datetime, logs: List[dict], msgs: List[Message], test: bool = False,
+                      since: Optional[datetime] = None) -> None:
+        """since: the last arrival the message names; the test switch passes the last one before
+        this hour (its own hour's real test may have arrived). None means the latest arrival."""
         self.verdict = "not_arriving"
         self.result = Result("not_arriving", t)
         sent = tuple(s.at for s in self.starts)
+        if not test:
+            since = self.last_arrival
         logs.append({"action": "not_arriving", "severity": "WARNING", "tick": t.isoformat(),
                      "references": [s.reference for s in self.starts],
-                     "last_arrival": None if self.last_arrival is None else self.last_arrival.isoformat(),
+                     "last_arrival": None if since is None else since.isoformat(),
                      "test": test})
         if self.episode is None:
-            self.episode = Episode(start_hour=hour, last_sent_hour=hour, since=self.last_arrival, test=test)
-            msgs.append(Message(kind="email_alert", at=t, since=self.last_arrival, sent=sent, test=test))
+            self.episode = Episode(start_hour=hour, last_sent_hour=hour, since=since, test=test)
+            msgs.append(Message(kind="email_alert", at=t, since=since, sent=sent, test=test))
         elif hour - self.episode.last_sent_hour >= REMIND_EVERY:
             self.episode.last_sent_hour = hour
             msgs.append(Message(kind="email_repeat", at=t, since=self.episode.since, sent=sent, test=self.episode.test))
@@ -263,8 +268,10 @@ class MailCheck:
 
     def force_misses(self, now: datetime) -> Tuple[List[dict], List[Message]]:
         """Test switch: behave as if this hour's two tests were both missing. The mailbox is
-        really read (a failed read sends nothing). The hour's cycle is then reset, so the next
-        scheduled tick looks again, finds the hour's real test and sends the all-clear."""
+        really read (a failed read sends nothing). The message names the last arrival before
+        this hour and no send times, since no test was really missed; every time in it is
+        real. The hour's cycle is then reset, so the next scheduled tick looks again, finds the
+        hour's real test and sends the all-clear."""
         now = utc(now)
         t = tick_floor(now)
         hour = hour_of(t)
@@ -273,12 +280,13 @@ class MailCheck:
         if self.episode is not None:
             logs.append({"action": "test_refused", "tick": t.isoformat(), "reason": "an episode is already open"})
             return logs, msgs
-        if self._read(now, t, logs) is None:
+        arrivals = self._read(now, t, logs)
+        if arrivals is None:
             return logs, msgs
+        before = [a.arrived for a in arrivals if a.arrived < hour]
         self.hour = hour
-        self.starts = [Start(reference="TEST-1", tick=t - 2 * WAIT, at=now - 2 * WAIT),
-                       Start(reference="TEST-2", tick=t - WAIT, at=now - WAIT)]
-        self._not_arriving(t, hour, logs, msgs, test=True)
+        self.starts = []
+        self._not_arriving(t, hour, logs, msgs, test=True, since=max(before) if before else None)
         self.starts = []
         self.verdict = None
         self.refusals = 0
