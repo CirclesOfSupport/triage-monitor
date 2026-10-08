@@ -1,10 +1,10 @@
 """The words of every email the service sends itself. Plain text, ASCII only.
 
-A subject starts with the state, in capitals, so the kind is read at a glance and a
-"resumed" or "arriving again" can never be taken for the alert it closes:
+A subject starts with what it is about and its state, in capitals, so the kind is read at a
+glance and a "resumed" or "arriving again" can never be taken for the alert it closes:
 
-  SILENT / STILL SILENT / RESUMED / NOT RESOLVED   the triage rule
-  NOT ARRIVING / STILL NOT ARRIVING / ARRIVING AGAIN   the hourly email test
+  TRIAGE SILENT / TRIAGE STILL SILENT / TRIAGE RESUMED / TRIAGE NOT RESOLVED     the triage rule
+  EMAIL NOT ARRIVING / EMAIL STILL NOT ARRIVING / EMAIL ARRIVING AGAIN          the hourly email test
 
 The lines Cloud Monitoring carries (rule.compose) are separate and unchanged; this
 module is the service's own email.
@@ -81,11 +81,10 @@ def triage(d: Decision, line: Optional[str], now: datetime, test: bool = False) 
     waiting = f"{m.waiting} request{'' if m.waiting == 1 else 's'}"
     since = "none in the last 3 days" if m.last_det is None else when(m.last_det, now)
     silent = "" if m.silence_minutes is None else _duration(m.silence_minutes)
-    silent_sp = f" {silent}" if silent else ""
     silent_par = f" ({silent})" if silent else ""
     checks = "What this checks: " + CHECKS
     if d.kind == "alert":
-        subject = f"SILENT: triage{silent_sp}, {waiting} waiting"
+        subject = f"TRIAGE SILENT: {silent + ', ' if silent else ''}{waiting} waiting"
         body = (
             f"No triage determination since {since}{silent_par}.\n"
             f"{waiting.capitalize()} waiting 30 minutes or more.\n"
@@ -94,7 +93,7 @@ def triage(d: Decision, line: Optional[str], now: datetime, test: bool = False) 
             "2 hours while this lasts, and one message when it ends.\n\n" + checks + "\n"
         )
     elif d.kind == "repeat":
-        subject = f"STILL SILENT: triage{silent_sp}, {waiting} waiting"
+        subject = f"TRIAGE STILL SILENT: {silent + ', ' if silent else ''}{waiting} waiting"
         body = (
             f"Still no triage determination since {since}{silent_par}.\n"
             f"{waiting.capitalize()} waiting 30 minutes or more.\n"
@@ -102,13 +101,13 @@ def triage(d: Decision, line: Optional[str], now: datetime, test: bool = False) 
             + "\nThis reminder repeats every 2 hours while triage stays silent.\n\n" + checks + "\n"
         )
     elif d.ended_reason == "determination":
-        subject = f"RESUMED: triage determination at {since}"
+        subject = f"TRIAGE RESUMED: determination at {since}"
         body = (
             f"A triage determination landed at {since}. This closes the alert sent earlier.\n"
             f"{waiting.capitalize()} still waiting 30 minutes or more.\n\n" + checks + "\n"
         )
     elif d.ended_reason == "window_closed":
-        subject = f"STILL SILENT: triage - monitor hours over until 10:30 AM CT, {m.waiting} waiting"
+        subject = f"TRIAGE STILL SILENT: monitor hours over until 10:30 AM CT, {m.waiting} waiting"
         body = (
             f"Triage is STILL silent. This is NOT resolved.\n"
             f"No determination since {since}{silent_par}; {waiting} still waiting.\n\n"
@@ -116,7 +115,7 @@ def triage(d: Decision, line: Optional[str], now: datetime, test: bool = False) 
             "sent until it checks again at 10:30 AM CT.\n\n" + checks + "\n"
         )
     else:
-        subject = "NOT RESOLVED: triage alert ended, fewer than 3 requests waiting"
+        subject = "TRIAGE NOT RESOLVED: alert ended, fewer than 3 requests waiting"
         body = (
             f"Triage is NOT resolved. The alert sent earlier ended only because fewer than 3 requests are now waiting.\n"
             f"There is still no determination since {since}. Requests older than 14 hours are no "
@@ -131,7 +130,7 @@ def email_check(msg: Message, now: datetime) -> Tuple[str, str]:
     checks = "What this checks: " + MAIL_CHECKS
     if msg.kind == "email_ended":
         arrived = when(msg.arrived, now)
-        subject = f"ARRIVING AGAIN: TextIt email test at {arrived}"
+        subject = f"EMAIL ARRIVING AGAIN: TextIt test email at {arrived}"
         was = "No test had arrived in the 2 days before it." if msg.since is None else f"None had arrived since {since}."
         body = (
             f"A test email sent through TextIt arrived at {arrived}. This closes the alert sent earlier.\n"
@@ -143,7 +142,7 @@ def email_check(msg: Message, now: datetime) -> Tuple[str, str]:
     tests = f"Two tests were sent ({sent}) and neither reached the mailbox.\n" if sent else ""
     last = "No test has arrived in the last 2 days." if msg.since is None else f"The last test that arrived: {since}."
     if msg.kind == "email_alert":
-        subject = f"NOT ARRIVING: TextIt email test, {tail}"
+        subject = f"EMAIL NOT ARRIVING: TextIt test emails, {tail}"
         body = (
             "The hourly test email sent through TextIt has not arrived.\n"
             + tests + last + "\n\n"
@@ -152,7 +151,7 @@ def email_check(msg: Message, now: datetime) -> Tuple[str, str]:
             + checks + "\n"
         )
     else:
-        subject = f"STILL NOT ARRIVING: TextIt email test, {tail}"
+        subject = f"EMAIL STILL NOT ARRIVING: TextIt test emails, {tail}"
         body = (
             "The hourly test email sent through TextIt is still not arriving.\n"
             + tests + last + "\n\n"

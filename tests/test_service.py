@@ -173,10 +173,10 @@ def test_two_misses_send_the_not_arriving_email_and_then_the_all_clear(svc, monk
     logged = lines(capsys)
     notify = events(logged, "notify")
     assert [n["kind"] for n in notify] == ["email_alert"]
-    assert notify[0]["subject"] == "Early Alert: NOT ARRIVING: TextIt email test, none since 11:01 AM CT"
+    assert notify[0]["subject"] == "Early Alert: EMAIL NOT ARRIVING: TextIt test emails, none since 11:01 AM CT"
     assert len(svc.sent) == 1
     mail = svc.sent[0]
-    assert mail["subject"] == "[Early Alert] NOT ARRIVING: TextIt email test, none since 11:01 AM CT"
+    assert mail["subject"] == "[Early Alert] EMAIL NOT ARRIVING: TextIt test emails, none since 11:01 AM CT"
     assert mail["to"] == ("first@example.com", "second@example.com")
     assert mail["from"] == SETTINGS["ALERT_FROM"] and mail["username"] == "sender@example.org"
     assert mail["password"] == PASSWORD  # spaces in the stored app password are removed
@@ -187,7 +187,7 @@ def test_two_misses_send_the_not_arriving_email_and_then_the_all_clear(svc, monk
     main.run_tick(nxt, reader=quiet)
     svc.box.append(Arrival(reference(nxt), nxt + timedelta(seconds=30)))
     main.run_tick(nxt + 10 * MIN, reader=quiet)
-    assert [m["subject"] for m in svc.sent][1] == "[Early Alert] ARRIVING AGAIN: TextIt email test at 1:00 PM CT"
+    assert [m["subject"] for m in svc.sent][1] == "[Early Alert] EMAIL ARRIVING AGAIN: TextIt test email at 1:00 PM CT"
     assert [n["kind"] for n in events(lines(capsys), "notify")] == ["email_ended"]
 
 
@@ -231,7 +231,7 @@ def test_the_triage_alert_carries_the_not_arriving_line(svc, monkeypatch, capsys
         main.run_tick(NOON + i * 5 * MIN, reader=quiet)
     main._memory["next_due"] = None
     main.run_tick(NOON + 25 * MIN, reader=alerting)
-    assert svc.sent[-1]["subject"].startswith("[Early Alert] SILENT: triage")
+    assert svc.sent[-1]["subject"].startswith("[Early Alert] TRIAGE SILENT:")
     assert ("Email check: test emails are NOT arriving (last arrived 11:01 AM CT; tests since then have not arrived)."
             in svc.sent[-1]["body"])
 
@@ -274,8 +274,8 @@ def test_switch_alert_then_ended_sends_two_test_emails_that_cannot_be_confused(s
     main.run_tick(NOON + 2 * MIN, reader=quiet, test="alert")
     main.run_tick(NOON + 7 * MIN, reader=quiet, test="ended")
     subjects = [m["subject"] for m in svc.sent]
-    assert subjects[0].startswith("[Early Alert] TEST - SILENT: triage")
-    assert subjects[1].startswith("[Early Alert] TEST - RESUMED: triage determination at")
+    assert subjects[0].startswith("[Early Alert] TEST - TRIAGE SILENT:")
+    assert subjects[1].startswith("[Early Alert] TEST - TRIAGE RESUMED: determination at")
     assert svc.starts == []  # a triage test call does not run the email check
     notify = events(lines(capsys), "notify")
     assert [n["kind"] for n in notify] == ["alert", "ended"] and all(n["test"] for n in notify)
@@ -289,8 +289,8 @@ def test_switch_email_misses_then_the_next_tick_sends_the_all_clear(svc, monkeyp
     main.run_tick(NOON + 12 * MIN, reader=quiet, test="email_misses")
     main.run_tick(NOON + 15 * MIN, reader=quiet)
     subjects = [m["subject"] for m in svc.sent]
-    assert subjects == ["[Early Alert] TEST - NOT ARRIVING: TextIt email test, none since 12:00 PM CT",
-                        "[Early Alert] TEST - ARRIVING AGAIN: TextIt email test at 12:00 PM CT"]
+    assert subjects == ["[Early Alert] TEST - EMAIL NOT ARRIVING: TextIt test emails, none since 12:00 PM CT",
+                        "[Early Alert] TEST - EMAIL ARRIVING AGAIN: TextIt test email at 12:00 PM CT"]
     assert len(svc.starts) == 1
 
 

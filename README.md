@@ -42,7 +42,7 @@ the table; this section does.
 about an email it sends. So once an hour, every hour of the day, the service has TextIt
 start one small flow that emails a test to a mailbox the service reads, and looks for it
 10 minutes later. A missing test is sent once more; when two in a row are missing the
-service sends "NOT ARRIVING", reminds every 2 hours while it lasts, and says "ARRIVING
+service sends "EMAIL NOT ARRIVING", reminds every 2 hours while it lasts, and says "EMAIL ARRIVING
 AGAIN" once when a test arrives. One late email never alerts, and neither does TextIt
 refusing to start the test or the mailbox being unreadable: those are logged as their own
 states. Every triage alert and reminder carries one line with this check's latest result.
@@ -56,8 +56,8 @@ test address or the mailbox it lands in), re-point the settings listed under
 already "open" is held only in the running instance's memory, and Cloud Run replaces the
 instance about once a day (and on every deploy). If that happens in the middle of an email
 outage, the next failed hour is announced as a new alert instead of a reminder, and if email
-recovers within the hour after the replacement, the "ARRIVING AGAIN" message is not sent.
-Nothing else is lost: a false "NOT ARRIVING" needs two accepted tests and a successful
+recovers within the hour after the replacement, the "EMAIL ARRIVING AGAIN" message is not sent.
+Nothing else is lost: a false "EMAIL NOT ARRIVING" needs two accepted tests and a successful
 mailbox read in the same instance, so a replaced instance can only stay quiet, never alarm.
 The triage rule is not affected: it recomputes everything from the table on every tick.
 
@@ -135,19 +135,19 @@ after 5 seconds; the outcome is one `event=own_email` line: sent or failed, atte
 many recipients - never an address or a body). A failed email changes nothing else in the
 tick, and the log line has already been written.
 
-The email's subject opens with the state in capitals, so a closing message cannot be taken
-for the alert it closes:
+The email's subject opens with what it is about and its state, in capitals, so a closing
+message cannot be taken for the alert it closes:
 
 | kind | subject |
 |---|---|
-| `alert` | *[Early Alert] SILENT: triage 1 h 33 min, 4 requests waiting* |
-| `repeat` | *[Early Alert] STILL SILENT: triage 3 h 33 min, 9 requests waiting* |
-| `ended` by a determination | *[Early Alert] RESUMED: triage determination at 1:23 PM CT* |
-| `ended` at 8 PM, still silent | *[Early Alert] STILL SILENT: triage - monitor hours over until 10:30 AM CT, 44 waiting* |
-| `ended`, fewer than 3 waiting | *[Early Alert] NOT RESOLVED: triage alert ended, fewer than 3 requests waiting* |
-| `email_alert` | *[Early Alert] NOT ARRIVING: TextIt email test, none since 1:02 PM CT* |
-| `email_repeat` | *[Early Alert] STILL NOT ARRIVING: TextIt email test, none since 1:02 PM CT* |
-| `email_ended` | *[Early Alert] ARRIVING AGAIN: TextIt email test at 4:02 PM CT* |
+| `alert` | *[Early Alert] TRIAGE SILENT: 1 h 33 min, 4 requests waiting* |
+| `repeat` | *[Early Alert] TRIAGE STILL SILENT: 3 h 33 min, 9 requests waiting* |
+| `ended` by a determination | *[Early Alert] TRIAGE RESUMED: determination at 1:23 PM CT* |
+| `ended` at 8 PM, still silent | *[Early Alert] TRIAGE STILL SILENT: monitor hours over until 10:30 AM CT, 44 waiting* |
+| `ended`, fewer than 3 waiting | *[Early Alert] TRIAGE NOT RESOLVED: alert ended, fewer than 3 requests waiting* |
+| `email_alert` | *[Early Alert] EMAIL NOT ARRIVING: TextIt test emails, none since 1:02 PM CT* |
+| `email_repeat` | *[Early Alert] EMAIL STILL NOT ARRIVING: TextIt test emails, none since 1:02 PM CT* |
+| `email_ended` | *[Early Alert] EMAIL ARRIVING AGAIN: TextIt test email at 4:02 PM CT* |
 
 The words are in `src/messages.py`. The log line keeps its own, older wording
 (`rule.compose`), below:
@@ -287,8 +287,8 @@ The caller needs Cloud Run Invoker on the service. The four test bodies:
 - `alert`, then `ended` 5 minutes later: a TEST triage alert and its TEST "resumed", by log
   line and by email, with the live numbers.
 - `email_misses`: the email check behaves as if this hour's two tests were missing. The
-  mailbox is really read; a TEST "NOT ARRIVING" goes out; the next scheduled tick looks
-  again, finds the hour's real test and sends the TEST "ARRIVING AGAIN". Run it a few
+  mailbox is really read; a TEST "EMAIL NOT ARRIVING" goes out; the next scheduled tick looks
+  again, finds the hour's real test and sends the TEST "EMAIL ARRIVING AGAIN". Run it a few
   minutes after the hour's test has arrived.
 - `email_refused`: asks TextIt to start a flow that does not exist. The refusal is logged
   (`action=could_not_run`) and shows in the next triage alert's line; no message goes out.

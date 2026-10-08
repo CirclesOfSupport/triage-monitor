@@ -53,7 +53,7 @@ def every_message():
 
 
 def state_word(subject):
-    """The capitals a subject opens with, after the tag: 'SILENT', 'ARRIVING AGAIN', ..."""
+    """The capitals a subject opens with, after the tag: 'TRIAGE SILENT', 'EMAIL ARRIVING AGAIN', ..."""
     assert subject.startswith(messages.PREFIX)
     return subject[len(messages.PREFIX):].split(":")[0]
 
@@ -61,18 +61,20 @@ def state_word(subject):
 def test_every_subject_opens_with_its_own_state():
     words = {name: state_word(subject) for name, (subject, _) in every_message().items()}
     assert words == {
-        "alert": "SILENT", "repeat": "STILL SILENT", "resumed": "RESUMED",
-        "window_closed": "STILL SILENT", "waiting_fell": "NOT RESOLVED",
-        "email_alert": "NOT ARRIVING", "email_repeat": "STILL NOT ARRIVING", "email_ended": "ARRIVING AGAIN",
+        "alert": "TRIAGE SILENT", "repeat": "TRIAGE STILL SILENT", "resumed": "TRIAGE RESUMED",
+        "window_closed": "TRIAGE STILL SILENT", "waiting_fell": "TRIAGE NOT RESOLVED",
+        "email_alert": "EMAIL NOT ARRIVING", "email_repeat": "EMAIL STILL NOT ARRIVING", "email_ended": "EMAIL ARRIVING AGAIN",
     }
 
 
 def test_a_closing_message_shares_no_opening_word_with_the_alert_it_closes():
     m = every_message()
-    first = lambda name: state_word(m[name][0]).split()[0]  # noqa: E731
+    # the first word names what the message is about; the word after it is the state
+    first = lambda name: state_word(m[name][0]).split()[1]  # noqa: E731
+    assert {state_word(m[n][0]).split()[0] for n in m} == {"TRIAGE", "EMAIL"}
     assert first("resumed") not in (first("alert"), first("repeat"))
     assert first("waiting_fell") not in (first("alert"), first("repeat"))
-    assert m["waiting_fell"][0] == "[Early Alert] NOT RESOLVED: triage alert ended, fewer than 3 requests waiting"
+    assert m["waiting_fell"][0] == "[Early Alert] TRIAGE NOT RESOLVED: alert ended, fewer than 3 requests waiting"
     assert m["waiting_fell"][1].startswith("Triage is NOT resolved.")
     assert first("email_ended") not in (first("email_alert"), first("email_repeat"))
     # the 8 PM message is not a closing message: it must read as still on
@@ -102,10 +104,10 @@ def test_the_alert_and_the_reminder_carry_the_email_line_and_the_numbers():
 
 def test_email_messages_name_the_last_arrival_and_the_two_tests():
     m = every_message()
-    assert m["email_alert"][0] == "[Early Alert] NOT ARRIVING: TextIt email test, none since 1:02 PM CT"
+    assert m["email_alert"][0] == "[Early Alert] EMAIL NOT ARRIVING: TextIt test emails, none since 1:02 PM CT"
     assert "Two tests were sent (2:00 PM CT and 2:10 PM CT) and neither reached the mailbox." in m["email_alert"][1]
-    assert m["email_repeat"][0] == "[Early Alert] STILL NOT ARRIVING: TextIt email test, none since 1:02 PM CT"
-    assert m["email_ended"][0] == "[Early Alert] ARRIVING AGAIN: TextIt email test at 5:02 PM CT"
+    assert m["email_repeat"][0] == "[Early Alert] EMAIL STILL NOT ARRIVING: TextIt test emails, none since 1:02 PM CT"
+    assert m["email_ended"][0] == "[Early Alert] EMAIL ARRIVING AGAIN: TextIt test email at 5:02 PM CT"
     assert "None had arrived since 1:02 PM CT." in m["email_ended"][1]
 
 
@@ -123,9 +125,9 @@ def test_a_time_on_another_day_carries_the_day():
 def test_test_versions_are_marked_in_the_subject_and_the_first_line():
     d = decide(silent(NOW), NOW)
     subject, body = messages.triage(d, LINE, NOW, test=True)
-    assert subject.startswith("[Early Alert] TEST - SILENT:") and body.startswith("THIS IS A TEST")
+    assert subject.startswith("[Early Alert] TEST - TRIAGE SILENT:") and body.startswith("THIS IS A TEST")
     subject, body = messages.email_check(Message("email_alert", NOW, None, (), test=True), NOW)
-    assert subject.startswith("[Early Alert] TEST - NOT ARRIVING:") and body.startswith("THIS IS A TEST")
+    assert subject.startswith("[Early Alert] TEST - EMAIL NOT ARRIVING:") and body.startswith("THIS IS A TEST")
 
 
 def test_one_request_is_singular():
@@ -170,6 +172,6 @@ def test_the_carried_copy_of_an_email_message_has_every_label_the_policy_extract
     subject, body = messages.email_check(m, NOW)
     carried = messages.email_check_google(m, subject, body)
     assert set(carried) == {"kind", "subject", "headline", "last_determination", "waiting", "checks"}
-    assert carried["kind"] == "email_alert" and carried["subject"].startswith("Early Alert: NOT ARRIVING")
+    assert carried["kind"] == "email_alert" and carried["subject"].startswith("Early Alert: EMAIL NOT ARRIVING")
     assert "has not arrived" in carried["headline"] and "\n" not in carried["headline"]
     assert all(isinstance(v, str) and v for v in carried.values())
