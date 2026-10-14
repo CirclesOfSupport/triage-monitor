@@ -132,8 +132,27 @@ def test_test_versions_are_marked_in_the_subject_and_the_first_line():
 
 def test_one_request_is_singular():
     d = decide(silent(NOW), NOW)
-    d = replace(d, kind="ended", ended_reason="determination", now=replace(d.now, waiting=1))
-    assert "1 request still waiting" in messages.triage(d, None, NOW)[1]
+    d = replace(d, kind="ended", ended_reason="window_closed", now=replace(d.now, waiting=1))
+    assert "1 request that came in after the last determination is still waiting" in messages.triage(d, None, NOW)[1]
+
+
+def test_every_count_in_a_body_says_the_requests_came_in_after_the_last_determination():
+    m = every_message()
+    assert "4 requests that came in after the last determination have waited 30 minutes or more." in m["alert"][1]
+    assert "4 requests that came in after the last determination have waited 30 minutes or more." in m["repeat"][1]
+    assert "4 requests that came in after the last determination are still waiting." in m["window_closed"][1]
+    assert "fewer than 3 requests that came in after the last determination are now waiting." in m["waiting_fell"][1]
+    # subjects keep their words
+    assert m["alert"][0] == "[Early Alert] TRIAGE SILENT: 1 h 33 min, 4 requests waiting"
+
+
+def test_the_resumed_email_gives_no_count():
+    # right after a determination no request can have come in after it and waited 30 minutes,
+    # so a count there would always read 0 (rule.measure); the message gives none
+    subject, body = every_message()["resumed"]
+    said = body.split("What this checks:")[0]
+    assert "waiting" not in said and "request" not in said
+    assert subject == "[Early Alert] TRIAGE RESUMED: determination at 12:27 PM CT"
 
 
 # ---- the line ---------------------------------------------------------------------------

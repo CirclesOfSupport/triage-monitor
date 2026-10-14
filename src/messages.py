@@ -79,6 +79,11 @@ def triage(d: Decision, line: Optional[str], now: datetime, test: bool = False) 
         return None
     m = d.now
     waiting = f"{m.waiting} request{'' if m.waiting == 1 else 's'}"
+    # The waiting count is only requests that came in after the last determination
+    # (rule.measure); the body says so wherever it gives the number.
+    newer = f"{waiting} that came in after the last determination"
+    have = "has" if m.waiting == 1 else "have"
+    are = "is" if m.waiting == 1 else "are"
     since = "none in the last 3 days" if m.last_det is None else when(m.last_det, now)
     silent = "" if m.silence_minutes is None else _duration(m.silence_minutes)
     silent_par = f" ({silent})" if silent else ""
@@ -87,7 +92,7 @@ def triage(d: Decision, line: Optional[str], now: datetime, test: bool = False) 
         subject = f"TRIAGE SILENT: {silent + ', ' if silent else ''}{waiting} waiting"
         body = (
             f"No triage determination since {since}{silent_par}.\n"
-            f"{waiting.capitalize()} waiting 30 minutes or more.\n"
+            f"{newer.capitalize()} {have} waited 30 minutes or more.\n"
             + (f"{line}\n" if line else "")
             + "\nPlease check that triage requests are reaching the counselors. A reminder follows every "
             "2 hours while this lasts, and one message when it ends.\n\n" + checks + "\n"
@@ -96,28 +101,31 @@ def triage(d: Decision, line: Optional[str], now: datetime, test: bool = False) 
         subject = f"TRIAGE STILL SILENT: {silent + ', ' if silent else ''}{waiting} waiting"
         body = (
             f"Still no triage determination since {since}{silent_par}.\n"
-            f"{waiting.capitalize()} waiting 30 minutes or more.\n"
+            f"{newer.capitalize()} {have} waited 30 minutes or more.\n"
             + (f"{line}\n" if line else "")
             + "\nThis reminder repeats every 2 hours while triage stays silent.\n\n" + checks + "\n"
         )
     elif d.ended_reason == "determination":
         subject = f"TRIAGE RESUMED: determination at {since}"
         body = (
-            f"A triage determination landed at {since}. This closes the alert sent earlier.\n"
-            f"{waiting.capitalize()} still waiting 30 minutes or more.\n\n" + checks + "\n"
+            # No count here: right after a determination no request can have come in after it
+            # and waited 30 minutes, so the number would always read 0.
+            f"A triage determination landed at {since}. This closes the alert sent earlier.\n\n"
+            + checks + "\n"
         )
     elif d.ended_reason == "window_closed":
         subject = f"TRIAGE STILL SILENT: monitor hours over until 10:30 AM CT, {m.waiting} waiting"
         body = (
             f"Triage is STILL silent. This is NOT resolved.\n"
-            f"No determination since {since}{silent_par}; {waiting} still waiting.\n\n"
+            f"No determination since {since}{silent_par}; {newer} {are} still waiting.\n\n"
             "The monitor's hours are over for today (10:30 AM to 8:00 PM CT). Nothing more will be "
             "sent until it checks again at 10:30 AM CT.\n\n" + checks + "\n"
         )
     else:
         subject = "TRIAGE NOT RESOLVED: alert ended, fewer than 3 requests waiting"
         body = (
-            f"Triage is NOT resolved. The alert sent earlier ended only because fewer than 3 requests are now waiting.\n"
+            f"Triage is NOT resolved. The alert sent earlier ended only because fewer than 3 requests that came "
+            f"in after the last determination are now waiting.\n"
             f"There is still no determination since {since}. Requests older than 14 hours are no "
             "longer counted.\n\n" + checks + "\n"
         )

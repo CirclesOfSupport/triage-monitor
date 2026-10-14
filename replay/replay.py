@@ -90,10 +90,20 @@ def _window_start(day):
     return datetime(day.year, day.month, day.day, 10, 30, tzinfo=CENTRAL).astimezone(timezone.utc)
 
 
+def _determination_then_three_new(reqs, t):
+    """A determination one minute after tick t, and three new requests a minute after it.
+    Only requests that came in after the latest determination count as waiting, so the
+    fastest cycling needs three new ones after every determination; they reach 30 minutes
+    long before the next 90 minutes of silence are up."""
+    reqs.append(Request(req_ts=t - timedelta(hours=2), det_ts=t + timedelta(minutes=1)))
+    reqs += [Request(req_ts=t + timedelta(minutes=2, seconds=i), det_ts=None) for i in range(3)]
+
+
 def synthetic_determination_cycle_day(day=datetime(2026, 7, 15)):
     """The fastest alert/ended cycling the rule allows by determinations: an episode starts
     at 10:30 AM, a determination lands a minute later (ended on the next tick), and silence
-    must then build 90 minutes before the next episode. Three requests always waiting."""
+    must then build 90 minutes before the next episode. Three requests always waiting:
+    three before the day opens, and three new ones after every determination."""
     start = _window_start(day)
     end = start + timedelta(hours=9, minutes=30)
     reqs = []
@@ -107,7 +117,7 @@ def synthetic_determination_cycle_day(day=datetime(2026, 7, 15)):
     while t < end:
         d = decide(reqs, t)
         if d.kind == "alert":
-            reqs.append(Request(req_ts=t - timedelta(hours=2), det_ts=t + timedelta(minutes=1)))
+            _determination_then_three_new(reqs, t)
         t += TICK
     return reqs, start, end
 
@@ -131,7 +141,7 @@ def synthetic_aging_flap_day(day=datetime(2026, 7, 15)):
     while t < end:
         d = decide(reqs, t)
         if d.kind == "alert":
-            reqs.append(Request(req_ts=t - timedelta(hours=2), det_ts=t + timedelta(minutes=1)))
+            _determination_then_three_new(reqs, t)
         t += TICK
     return reqs, start, end
 

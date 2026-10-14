@@ -1,13 +1,15 @@
 """Edge tests for the triage-silence rule and the tick handler (evidence plan row 3)."""
 
+import random
 import sys
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 sys.path.insert(0, __file__.rsplit("/", 2)[0] + "/src")
 
 import main  # noqa: E402
-from rule import Request, compose, decide, in_window, measure, next_due, next_window_start, tick_floor  # noqa: E402
+from rule import TICK, Request, compose, decide, in_window, measure, next_due, next_window_start, tick_floor  # noqa: E402
 
 CT = ZoneInfo("America/Chicago")
 UTC = timezone.utc
@@ -113,6 +115,125 @@ def test_fewer_than_three_waiting_does_not_fire():
     assert decide(silent_with_waiting(at, n=3), at).now.fires
 
 
+# ---- Amendment 2 (2026-10-14): waiting = came in after the last determination --
+
+def todays_shape():
+    """2026-10-14, the first live false alarm: the last determination at 8:48:44 AM CT, and the
+    three undetermined requests all from before it (10-13 8:41:37 PM and 8:45:45 PM, 10-14
+    4:33:33 AM); nothing came in after 8:47:15 AM."""
+    det = datetime(2026, 10, 14, 8, 48, 44, tzinfo=CT).astimezone(UTC)
+    return [
+        Request(req_ts=datetime(2026, 10, 13, 20, 41, 37, tzinfo=CT).astimezone(UTC), det_ts=None),
+        Request(req_ts=datetime(2026, 10, 13, 20, 45, 45, tzinfo=CT).astimezone(UTC), det_ts=None),
+        Request(req_ts=datetime(2026, 10, 14, 4, 33, 33, tzinfo=CT).astimezone(UTC), det_ts=None),
+        Request(req_ts=datetime(2026, 10, 14, 8, 47, 15, tzinfo=CT).astimezone(UTC), det_ts=det),
+    ]
+
+
+def test_todays_shape_three_older_than_the_last_determination_never_alerts():
+    reqs = todays_shape()
+    for minutes in range(0, 120, 5):  # 10:30 AM to 12:25 PM
+        at = ct(2026, 10, 14, 10, 30) + timedelta(minutes=minutes)
+        d = decide(reqs, at)
+        assert d.now.waiting == 0 and d.kind is None and not d.now.fires, at
+    m = measure(reqs, ct(2026, 10, 14, 10, 30))
+    assert m.silence_minutes > 90 and m.in_window  # the silence and the window held; the count did not
+
+
+def test_three_that_came_in_after_the_last_determination_alert():
+    reqs = todays_shape()
+    det = reqs[-1].det_ts
+    reqs += [Request(req_ts=det + timedelta(minutes=1 + i), det_ts=None) for i in range(3)]
+    d = decide(reqs, ct(2026, 10, 14, 10, 30))
+    assert d.now.waiting == 3 and d.kind == "alert"
+
+
+def test_two_older_and_two_newer_do_not_alert_and_a_third_newer_does():
+    at = ct(2026, 7, 15, 12, 0)
+    det = at - timedelta(minutes=100)
+    older = [Request(req_ts=det - timedelta(minutes=10 + i), det_ts=None) for i in range(2)]
+    newer = [Request(req_ts=det + timedelta(minutes=5 + i), det_ts=None) for i in range(2)]
+    reqs = older + newer + [Request(req_ts=det - timedelta(hours=1), det_ts=det)]
+    m = measure(reqs, at)
+    assert m.waiting == 2 and not m.fires
+    reqs.append(Request(req_ts=det + timedelta(minutes=20), det_ts=None))
+    m = measure(reqs, at)
+    assert m.waiting == 3 and m.fires
+
+
+def test_a_request_at_the_same_second_as_the_last_determination_does_not_count():
+    at = ct(2026, 7, 15, 12, 0)
+    det = at - timedelta(hours=2)
+    landed = Request(req_ts=det - timedelta(minutes=5), det_ts=det)
+    assert measure([landed, Request(req_ts=det, det_ts=None)], at).waiting == 0
+    assert measure([landed, Request(req_ts=det + timedelta(seconds=1), det_ts=None)], at).waiting == 1
+
+
+def test_with_no_determination_in_the_lookback_every_request_counts():
+    at = ct(2026, 7, 15, 12, 0)
+    reqs = [Request(req_ts=at - timedelta(hours=h), det_ts=None) for h in (1, 5, 13)]
+    m = measure(reqs, at)
+    assert m.last_det is None and m.waiting == 3 and m.fires
+
+
+def test_a_determination_after_t_does_not_move_the_line_at_t():
+    # as-of: a determination that lands later is invisible at t, so it excludes nothing at t
+    at = ct(2026, 7, 15, 12, 0)
+    old = Request(req_ts=at - timedelta(hours=6), det_ts=at - timedelta(hours=4))
+    waiting = [Request(req_ts=at - timedelta(hours=3, minutes=i), det_ts=None) for i in range(3)]
+    later = Request(req_ts=at - timedelta(hours=1), det_ts=at + timedelta(minutes=10))
+    m = measure([old, later] + waiting, at)
+    assert m.last_det == old.det_ts and m.waiting == 4 and m.fires  # `later` itself still waits at t
+    m = measure([old, later] + waiting, at + timedelta(minutes=10))
+    assert m.waiting == 0 and not m.fires  # once it lands, the three came in before it
+
+
+def test_14_hour_edge_after_a_determination_15_hours_ago():
+    at = ct(2026, 7, 15, 12, 0)
+    det = Request(req_ts=at - timedelta(hours=16), det_ts=at - timedelta(hours=15))
+    assert measure([det, Request(req_ts=at - timedelta(hours=14), det_ts=None)], at).waiting == 0
+    assert measure([det, Request(req_ts=at - timedelta(hours=14) + timedelta(seconds=1), det_ts=None)], at).waiting == 1
+
+
+def test_episode_start_waits_for_the_third_request_after_the_last_determination():
+    # silence is over 90 minutes from the window's start, three leftovers wait from before the
+    # last determination, and three new requests reach 30 minutes at 11:15: the episode starts
+    # at 11:15, not at 10:30
+    day = (2026, 7, 15)
+    det = ct(*day, 8, 0)
+    reqs = [Request(req_ts=det - timedelta(minutes=1), det_ts=det)]
+    reqs += [Request(req_ts=det - timedelta(hours=2, minutes=i), det_ts=None) for i in range(3)]
+    reqs += [Request(req_ts=ct(*day, 10, 45) - timedelta(minutes=i), det_ts=None) for i in range(3)]
+    assert decide(reqs, ct(*day, 10, 30)).kind is None
+    assert not measure(reqs, ct(*day, 11, 10)).fires
+    d = decide(reqs, ct(*day, 11, 15))
+    assert d.kind == "alert" and d.episode_start == ct(*day, 11, 15) and d.now.waiting == 3
+    later = decide(reqs, ct(*day, 12, 0))
+    assert later.kind is None and later.episode_start == ct(*day, 11, 15)
+
+
+def test_after_a_determination_ends_an_episode_the_count_is_always_zero():
+    start = ct(2026, 7, 15, 12, 0)
+    reqs = silent_with_waiting(start, n=5)
+    assert decide(reqs, start).kind == "alert"
+    reqs = reqs + [Request(req_ts=start - timedelta(hours=1), det_ts=start + timedelta(minutes=3))]
+    d = decide(reqs, start + timedelta(minutes=5))
+    assert d.kind == "ended" and d.ended_reason == "determination" and d.now.waiting == 0
+    # so Google's copy of "resumed" gives no count (it would always say 0 still waiting)
+    msg = compose(d)
+    assert msg["headline"] == "A triage determination landed at 12:03 PM CT on Wed Jul 15."
+
+
+def test_the_waiting_fell_line_says_the_requests_came_in_after_the_last_determination():
+    # requests from before the last determination may still be waiting; the old line
+    # ("Fewer than 3 requests are now waiting") would be false then
+    at = ct(2026, 7, 15, 12, 0)
+    reqs = silent_with_waiting(at)
+    d = decide(reqs, at)
+    msg = compose(replace(d, kind="ended", ended_reason="waiting_fell"))
+    assert msg["headline"].startswith("Fewer than 3 requests that came in after the last determination are now waiting")
+
+
 # ---- split rows counted once -----------------------------------------------
 
 def test_split_rows_are_merged_by_request_id_with_min():
@@ -170,6 +291,47 @@ def test_next_due_is_after_last_det_plus_90_and_after_third_waiting():
     reqs += [Request(req_ts=at - timedelta(minutes=i), det_ts=None) for i in (1, 2, 3)]
     m = measure(reqs, at)
     assert next_due(reqs, at, m) == (at - timedelta(minutes=1)) + timedelta(minutes=30)
+
+
+def test_next_due_counts_requests_from_before_the_last_determination_so_it_can_only_be_early():
+    # Amendment 2 leaves B unfiltered (the record says why): with silence past 90 minutes and
+    # three leftovers from before the last determination, B is already past and the next read
+    # is the next tick, although the waiting count is 0. Early, never late.
+    at = ct(2026, 7, 15, 12, 0)
+    det = at - timedelta(minutes=100)
+    reqs = [Request(req_ts=det - timedelta(minutes=1), det_ts=det)]
+    reqs += [Request(req_ts=det - timedelta(hours=1, minutes=i), det_ts=None) for i in range(3)]
+    m = measure(reqs, at)
+    assert m.waiting == 0 and not m.fires
+    assert next_due(reqs, at, m) == at + timedelta(minutes=5)
+
+
+def test_next_due_is_never_late_with_requests_before_and_after_the_last_determination():
+    # Random histories around one tick: determined, undetermined, determined later, and new
+    # requests arriving after the tick. From the tick to the moment next_due names, the rule
+    # must not hold on any tick (the tick sees only the requests that had come in by then).
+    rng = random.Random(20261014)
+    base = ct(2026, 10, 14, 10, 30)
+    checked = 0
+    for _ in range(400):
+        reqs = []
+        for _ in range(rng.randint(0, 4)):
+            rq = base - timedelta(minutes=rng.randint(60, 1200))
+            reqs.append(Request(req_ts=rq, det_ts=rq + timedelta(minutes=rng.randint(1, 700))))
+        for _ in range(rng.randint(0, 9)):
+            rq = base + timedelta(minutes=rng.randint(-900, 400))
+            det = None if rng.random() < 0.6 else rq + timedelta(minutes=rng.randint(1, 400))
+            reqs.append(Request(req_ts=rq, det_ts=det))
+        tick = base + TICK * rng.randint(0, 100)
+        seen = [r for r in reqs if r.req_ts <= tick]
+        m = measure(seen, tick)
+        due = next_due(seen, tick, m)
+        t = tick + TICK
+        while t < due:
+            assert not measure([r for r in reqs if r.req_ts <= t], t).fires, (tick, due, t)
+            t += TICK
+            checked += 1
+    assert checked > 1000
 
 
 def test_next_due_outside_window_is_next_window_start():

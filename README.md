@@ -14,13 +14,23 @@ counts twice).
 
 - **Silence** = minutes since the latest `determination_time`.
 - **Waiting** = requests whose `triage_request_time` is at least 30 minutes and at most 14
-  hours old and that have no `determination_time`.
+  hours old, that have no `determination_time`, and that came in after the latest
+  `determination_time` (when the last 3 days hold no determination at all, every such request
+  counts). A request that came in before the latest determination is one the counselors have
+  already passed over, or whose determination was lost; it says nothing about whether triage
+  is reaching them now, so it does not count.
 - **Alert** when silence is 90 minutes or more AND waiting is 3 or more AND the Central
   clock (`America/Chicago`) is at or after 10:30 AM and before 8:00 PM, every day of the
   week. Nothing outside that window: a break that starts overnight is announced at
   10:30 AM. Alert thresholds come from two months of history (every rule and window was
-  back-tested; the chosen one fires on seven normal days in two months and would have
-  caught the 2026-09-25 outage at 5:10 PM, 95 minutes after the last determination).
+  back-tested; the chosen one would have caught the 2026-09-25 outage at 5:10 PM, 95 minutes
+  after the last determination). The waiting count was narrowed to requests that came in
+  after the latest determination on 2026-10-14, after the first live false alarm: that
+  morning's three "waiting" requests had all come in before the last determination, and
+  none was waiting on a counselor. Over 2026-08-01 to 2026-10-14 the narrowed rule fires on
+  five normal days instead of seven (four alerts set off only by such requests disappear,
+  two real gaps are announced 25 and 45 minutes later) and catches the outage at the same
+  tick.
 
 **If the way determinations are recorded ever changes** — a different survey, a different
 write path, a different table or column — this monitor must be re-pointed or it will alert
@@ -222,8 +232,9 @@ triage rule alone cannot reach it: an
 episode needs 90 minutes of silence to start and ends on the tick after a determination
 lands, so the fastest possible day is six alert/ended pairs — 12 messages; a day on which
 the waiting count also fell below 3 by aging out and climbed back costs a cycle slot and
-stays at 12 (both measured by `replay/replay.py` on synthetic worst days). Over the
-2026-08-01 to 2026-10-02 history the most in one day was 6 (the outage, Sep 26). The
+stays at 12 (both measured by `replay/replay.py` on synthetic worst days, in which three new
+requests come in after every determination, since older ones no longer count). Over the
+2026-08-01 to 2026-10-14 history the most in one day was 6 (the outage, Sep 26). The
 replay fails if any day reaches 20. The test switch sends its two messages 5 minutes apart
 so the one-per-5-minutes limit is exercised, not skipped. An email outage lasting a whole
 day adds up to 13 more (one alert, a reminder every 2 hours, one all-clear), so on a day
@@ -246,7 +257,7 @@ resource.type="cloud_run_revision" AND resource.labels.service_name="triage-moni
 
 ```
 python3 -m pytest -q tests
-python3 replay/replay.py <history.csv> 2026-08-01T05:00:00Z 2026-10-03T04:55:00Z
+python3 replay/replay.py <history.csv> 2026-08-01T05:00:00Z 2026-10-14T16:30:00Z
 ```
 
 The tests need nothing but this repository; TextIt, the mailbox and SMTP are replaced by
@@ -259,10 +270,14 @@ days, exactly as the service's query returns them), prints every alert, reminder
 message it would have sent, repeats the run with the read-only-when-due schedule and checks
 the two fire on identical ticks, then checks the daily cap.
 
-Result on that history (63 days): seven normal episodes — Sun Aug 9 (11:35 AM and 5:55 PM),
-Sat Aug 15 (11:05 AM and 7:25 PM), Sun Aug 16 (10:30 AM), Sun Aug 23 (2:25 PM), Thu Aug 27
-(5:40 PM) — and the outage: Fri Sep 25 at 5:10 PM and Sat Sep 26 at 10:30 AM. No others.
-Read-when-due: 812 reads over 18,144 ticks, identical events.
+Result on 2026-08-01 to 2026-10-14 (75 days, 21,451 ticks, 6,958 requests): five normal
+episodes — Sat Aug 15 (7:50 PM), Sun Aug 16 (11:15 AM), Sun Aug 23 (2:25 PM), Thu Aug 27
+(5:40 PM), Sun Oct 11 (4:00 PM) — and the outage: Fri Sep 25 at 5:10 PM and Sat Sep 26 at
+10:30 AM. No others. Before the waiting count was narrowed (2026-10-14) the same history gave
+four more, each set off only by requests that had come in before the last determination: Sun
+Aug 9 (11:35 AM and 5:55 PM), Sat Aug 15 (11:05 AM) and Wed Oct 14 (10:30 AM, the false alarm
+that led to the change); and two gaps started earlier, Sat Aug 15 at 7:25 PM and Sun Aug 16 at
+10:30 AM. Read-when-due: 915 reads over 21,451 ticks, identical events.
 
 ## Running it by hand
 

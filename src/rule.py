@@ -4,13 +4,19 @@ Nothing in this module talks to BigQuery, the clock, or the log. Every decision
 is a function of the tick time and the set of requests, so the same code can be
 replayed over history and unit-tested at the edges.
 
-The rule (approved 2026-10-04):
+The rule (approved 2026-10-04; waiting narrowed 2026-10-14, Amendment 2):
 
   silence  = minutes since the latest determination_time
   waiting  = requests whose triage_request_time is at least 30 minutes and at
-             most 14 hours old and that have no determination_time
+             most 14 hours old, that have no determination_time, and that came
+             in after the latest determination_time (with no determination in
+             the 3-day lookback, every such request counts)
   ALERT when silence >= 90 AND waiting >= 3 AND the Central clock
   (America/Chicago) is at or after 10:30 AM and before 8:00 PM, every day.
+
+A request that came in before the latest determination is one the counselors
+have already passed over (or whose determination was lost); it says nothing
+about whether triage is reaching them now, so it does not count.
 
 Episodes: an episode starts on the first 5-minute tick where the rule holds,
 repeats every 2 hours while it holds, and ends on the first tick where it no
@@ -108,16 +114,23 @@ def window_end_today(t: datetime) -> datetime:
 
 
 def measure(requests: Iterable[Request], t: datetime) -> Measure:
-    """What the table looked like at time t (as-of semantics on determination_time)."""
+    """What the table looked like at time t (as-of semantics on determination_time).
+
+    Two passes: the latest determination as of t first, because a request counts as
+    waiting only if it came in after it (strictly later; with none, every request in
+    the age band with no determination as of t counts)."""
     t = utc(t)
+    requests = list(requests)
     last_det: Optional[datetime] = None
+    for r in requests:
+        if r.det_ts is not None and r.det_ts <= t and (last_det is None or r.det_ts > last_det):
+            last_det = r.det_ts
     waiting = 0
     wait_newest = t - timedelta(minutes=WAIT_MIN_MINUTES)
     wait_oldest = t - timedelta(hours=WAIT_MAX_HOURS)
     for r in requests:
-        if r.det_ts is not None and r.det_ts <= t and (last_det is None or r.det_ts > last_det):
-            last_det = r.det_ts
-        if r.req_ts <= wait_newest and r.req_ts > wait_oldest and (r.det_ts is None or r.det_ts > t):
+        if (r.req_ts <= wait_newest and r.req_ts > wait_oldest and (r.det_ts is None or r.det_ts > t)
+                and (last_det is None or r.req_ts > last_det)):
             waiting += 1
     silence = None if last_det is None else (t - last_det).total_seconds() / 60.0
     return Measure(at=t, last_det=last_det, silence_minutes=silence, waiting=waiting, in_window=in_window(t))
@@ -149,6 +162,12 @@ def next_due(requests: list[Request], tick: datetime, now_m: Measure) -> datetim
     # B: the moment a third undetermined request reaches 30 minutes of waiting.
     # Aging past 14 hours and determinations landing can only push this later,
     # new requests can only arrive after now, so this estimate is never late.
+    # B counts every undetermined request, also those that came in before the latest
+    # determination, which the waiting count no longer does (Amendment 2). Those
+    # requests are a superset of the ones that can count, and the third of a superset
+    # is never later than the third of its subset: B can only be earlier than needed,
+    # never late. It is left unfiltered on purpose, so the read schedule is exactly
+    # the one proven since 2026-10-04 (see the README, "How it runs").
     oldest = tick - timedelta(hours=WAIT_MAX_HOURS)
     undetermined = sorted(r.req_ts for r in requests if r.req_ts > oldest and r.req_ts <= tick and (r.det_ts is None or r.det_ts > tick))
     if len(undetermined) >= WAITING_COUNT:
@@ -241,10 +260,9 @@ def compose(d: Decision, test: bool = False, email_line: Optional[str] = None) -
     else:  # ended
         if d.ended_reason == "determination":
             subject = f"{prefix}Early Alert: triage resumed — determination at {last}"
-            headline = (
-                f"A triage determination landed at {last}. "
-                f"{m.waiting} requests are still waiting 30 minutes or more."
-            )
+            # No count: right after a determination no request can have come in after it and
+            # waited 30 minutes (rule.measure), so it would always read 0.
+            headline = f"A triage determination landed at {last}."
         elif d.ended_reason == "window_closed":
             subject = f"{prefix}Early Alert: triage STILL silent — monitoring hours over until 10:30 AM CT; {m.waiting} requests waiting"
             headline = (
@@ -255,7 +273,8 @@ def compose(d: Decision, test: bool = False, email_line: Optional[str] = None) -
         else:
             subject = f"{prefix}Early Alert: triage NOT resolved — alert ended, fewer than 3 requests waiting"
             headline = (
-                f"Fewer than 3 requests are now waiting (requests older than 14 hours are no longer counted); "
+                f"Fewer than 3 requests that came in after the last determination are now waiting "
+                f"(requests older than 14 hours are no longer counted); "
                 f"no determination since {last}."
             )
     if email_line and d.kind in ("alert", "repeat"):
