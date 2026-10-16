@@ -150,11 +150,11 @@ message cannot be taken for the alert it closes:
 
 | kind | subject |
 |---|---|
-| `alert` | *[Early Alert] TRIAGE SILENT: 1 h 33 min, 4 requests waiting* |
-| `repeat` | *[Early Alert] TRIAGE STILL SILENT: 3 h 33 min, 9 requests waiting* |
+| `alert` | *[Early Alert] TRIAGE SILENT: 1 h 33 min, 4 new requests waiting* |
+| `repeat` | *[Early Alert] TRIAGE STILL SILENT: 3 h 33 min, 9 new requests waiting* |
 | `ended` by a determination | *[Early Alert] TRIAGE RESUMED: determination at 1:23 PM CT* |
-| `ended` at 8 PM, still silent | *[Early Alert] TRIAGE STILL SILENT: monitor hours over until 10:30 AM CT, 44 waiting* |
-| `ended`, fewer than 3 waiting | *[Early Alert] TRIAGE NOT RESOLVED: alert ended, fewer than 3 requests waiting* |
+| `ended` at 8 PM, still silent | *[Early Alert] TRIAGE STILL SILENT: monitor hours over until 10:30 AM CT, 44 new requests waiting* |
+| `ended`, fewer than 3 waiting | *[Early Alert] TRIAGE NOT RESOLVED: alert ended, fewer than 3 new requests waiting* |
 | `email_alert` | *[Early Alert] EMAIL NOT ARRIVING: TextIt test emails, none since 1:02 PM CT* |
 | `email_repeat` | *[Early Alert] EMAIL STILL NOT ARRIVING: TextIt test emails, none since 1:02 PM CT* |
 | `email_ended` | *[Early Alert] EMAIL ARRIVING AGAIN: TextIt test email at 4:02 PM CT* |
@@ -164,9 +164,9 @@ The words are in `src/messages.py`. The log line keeps its own, older wording
 
 | kind | when | subject |
 |---|---|---|
-| `alert` | the first tick the rule holds | *Early Alert: triage has been silent 1 h 33 min — 4 requests waiting* |
-| `repeat` | every 2 hours while it holds | *Early Alert: triage still silent 3 h 33 min — 9 requests waiting* |
-| `ended` | the first tick it no longer holds | *Early Alert: triage resumed — determination at 1:23 PM CT on Sat Aug 15*; or, when the window closes with the alert still on, *Early Alert: triage STILL silent — monitoring hours over until 10:30 AM CT; 44 requests waiting* (its first words say it is not resolved); or *Early Alert: triage NOT resolved — alert ended, fewer than 3 requests waiting* |
+| `alert` | the first tick the rule holds | *Early Alert: triage has been silent 1 h 33 min — 4 new requests waiting* |
+| `repeat` | every 2 hours while it holds | *Early Alert: triage still silent 3 h 33 min — 9 new requests waiting* |
+| `ended` | the first tick it no longer holds | *Early Alert: triage resumed — determination at 1:23 PM CT on Sat Aug 15*; or, when the window closes with the alert still on, *Early Alert: triage STILL silent — monitoring hours over until 10:30 AM CT; 44 new requests waiting* (its first words say it is not resolved); or *Early Alert: triage NOT resolved — alert ended, fewer than 3 new requests waiting* |
 | `test` | `POST /tick` with body `{"test": "alert"}`, then 5 minutes later `{"test": "ended"}` | the alert message and the ended message with the live numbers, prefixed `TEST —`, one tick apart on purpose (see the cap below) |
 
 The email-check kinds (`email_alert`, `email_repeat`, `email_ended`) are written to the same

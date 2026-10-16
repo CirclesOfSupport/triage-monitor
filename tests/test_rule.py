@@ -398,7 +398,7 @@ def test_alert_tick_writes_notify_line(capsys):
     body, status = main.run_tick(at, reader=reader)
     assert status == 200 and body["alerting"] is True and body["kind"] == "alert"
     out = capsys.readouterr().out
-    assert '"event": "notify"' in out and '"kind": "alert"' in out and "3 requests waiting" in out
+    assert '"event": "notify"' in out and '"kind": "alert"' in out and "3 new requests waiting" in out
 
 
 def test_test_switch_writes_alert_then_ended_one_tick_apart(capsys):

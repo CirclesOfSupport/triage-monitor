@@ -244,14 +244,14 @@ def compose(d: Decision, test: bool = False, email_line: Optional[str] = None) -
     silent = "" if m.silence_minutes is None else _duration(m.silence_minutes)
     prefix = "TEST — " if test else ""
     if d.kind == "alert":
-        subject = f"{prefix}Early Alert: triage has been silent {silent} — {m.waiting} requests waiting"
+        subject = f"{prefix}Early Alert: triage has been silent {silent} — {m.waiting} new requests waiting"
         headline = (
             f"No triage determination since {last} ({silent}); "
             f"{m.waiting} requests have waited 30 minutes or more. "
             f"Please check that triage requests are reaching the counselors."
         )
     elif d.kind == "repeat":
-        subject = f"{prefix}Early Alert: triage still silent {silent} — {m.waiting} requests waiting"
+        subject = f"{prefix}Early Alert: triage still silent {silent} — {m.waiting} new requests waiting"
         headline = (
             f"Still no triage determination since {last} ({silent}); "
             f"{m.waiting} requests have waited 30 minutes or more. "
@@ -264,14 +264,14 @@ def compose(d: Decision, test: bool = False, email_line: Optional[str] = None) -
             # waited 30 minutes (rule.measure), so it would always read 0.
             headline = f"A triage determination landed at {last}."
         elif d.ended_reason == "window_closed":
-            subject = f"{prefix}Early Alert: triage STILL silent — monitoring hours over until 10:30 AM CT; {m.waiting} requests waiting"
+            subject = f"{prefix}Early Alert: triage STILL silent — monitoring hours over until 10:30 AM CT; {m.waiting} new requests waiting"
             headline = (
                 f"Triage is STILL silent: no determination since {last} ({silent}), and {m.waiting} requests are "
                 f"still waiting. This is not resolved. The monitor's hours are over for today (10:30 AM to 8:00 PM CT); "
                 f"nothing will be sent until it checks again at 10:30 AM CT."
             )
         else:
-            subject = f"{prefix}Early Alert: triage NOT resolved — alert ended, fewer than 3 requests waiting"
+            subject = f"{prefix}Early Alert: triage NOT resolved — alert ended, fewer than 3 new requests waiting"
             headline = (
                 f"Fewer than 3 requests that came in after the last determination are now waiting "
                 f"(requests older than 14 hours are no longer counted); "

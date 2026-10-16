@@ -74,7 +74,7 @@ def test_a_closing_message_shares_no_opening_word_with_the_alert_it_closes():
     assert {state_word(m[n][0]).split()[0] for n in m} == {"TRIAGE", "EMAIL"}
     assert first("resumed") not in (first("alert"), first("repeat"))
     assert first("waiting_fell") not in (first("alert"), first("repeat"))
-    assert m["waiting_fell"][0] == "[Early Alert] TRIAGE NOT RESOLVED: alert ended, fewer than 3 requests waiting"
+    assert m["waiting_fell"][0] == "[Early Alert] TRIAGE NOT RESOLVED: alert ended, fewer than 3 new requests waiting"
     assert m["waiting_fell"][1].startswith("Triage is NOT resolved.")
     assert first("email_ended") not in (first("email_alert"), first("email_repeat"))
     # the 8 PM message is not a closing message: it must read as still on
@@ -96,7 +96,7 @@ def test_the_alert_and_the_reminder_carry_the_email_line_and_the_numbers():
     m = every_message()
     for name in ("alert", "repeat"):
         subject, body = m[name]
-        assert LINE in body and "1 h 33 min" in subject and "4 requests waiting" in subject
+        assert LINE in body and "1 h 33 min" in subject and "4 new requests waiting" in subject
         assert "12:27 PM CT" in body
     for name in ("resumed", "window_closed", "waiting_fell"):
         assert "Email check" not in m[name][1]
@@ -142,8 +142,29 @@ def test_every_count_in_a_body_says_the_requests_came_in_after_the_last_determin
     assert "4 requests that came in after the last determination have waited 30 minutes or more." in m["repeat"][1]
     assert "4 requests that came in after the last determination are still waiting." in m["window_closed"][1]
     assert "fewer than 3 requests that came in after the last determination are now waiting." in m["waiting_fell"][1]
-    # subjects keep their words
-    assert m["alert"][0] == "[Early Alert] TRIAGE SILENT: 1 h 33 min, 4 requests waiting"
+    # subjects say "new requests" (Logan, 2026-10-14)
+    assert m["alert"][0] == "[Early Alert] TRIAGE SILENT: 1 h 33 min, 4 new requests waiting"
+
+
+def test_every_triage_subject_with_a_count_says_new_requests():
+    m = every_message()
+    assert m["alert"][0] == "[Early Alert] TRIAGE SILENT: 1 h 33 min, 4 new requests waiting"
+    assert m["repeat"][0] == "[Early Alert] TRIAGE STILL SILENT: 1 h 33 min, 4 new requests waiting"
+    assert m["window_closed"][0] == (
+        "[Early Alert] TRIAGE STILL SILENT: monitor hours over until 10:30 AM CT, 4 new requests waiting")
+    assert m["waiting_fell"][0] == "[Early Alert] TRIAGE NOT RESOLVED: alert ended, fewer than 3 new requests waiting"
+    assert m["resumed"][0] == "[Early Alert] TRIAGE RESUMED: determination at 12:27 PM CT"
+    one = decide(silent(NOW), NOW)
+    one = replace(one, kind="ended", ended_reason="window_closed", now=replace(one.now, waiting=1))
+    assert messages.triage(one, None, NOW)[0].endswith(", 1 new request waiting")
+    # Google's copy takes the same word
+    d = decide(silent(NOW), NOW)
+    subjects = {k: compose(replace(d, kind=k, ended_reason=r))["subject"] for k, r in
+                (("alert", None), ("repeat", None), ("ended", "window_closed"))}
+    assert all(s.endswith("4 new requests waiting") for s in subjects.values()), subjects
+    assert compose(replace(d, kind="ended", ended_reason="waiting_fell"))["subject"].endswith(
+        "fewer than 3 new requests waiting")
+    assert "new" not in compose(replace(d, kind="ended", ended_reason="determination"))["subject"]
 
 
 def test_the_resumed_email_gives_no_count():
