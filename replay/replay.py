@@ -25,7 +25,7 @@ from collections import Counter
 from datetime import datetime, timedelta, timezone
 
 sys.path.insert(0, __file__.rsplit("/", 2)[0] + "/src")
-from rule import CENTRAL, Request, TICK, compose, decide, in_window  # noqa: E402
+from rule import CENTRAL, Request, TICK, WINDOW_END, WINDOW_START, compose, decide, in_window  # noqa: E402
 
 LOOKBACK = timedelta(days=3)
 DAILY_CAP = 20  # Cloud Monitoring: notifications per day for one log-based alerting policy
@@ -87,7 +87,11 @@ def messages_per_central_day(events):
 
 
 def _window_start(day):
-    return datetime(day.year, day.month, day.day, 10, 30, tzinfo=CENTRAL).astimezone(timezone.utc)
+    return datetime.combine(day.date(), WINDOW_START, tzinfo=CENTRAL).astimezone(timezone.utc)
+
+
+def _window_end(day):
+    return datetime.combine(day.date(), WINDOW_END, tzinfo=CENTRAL).astimezone(timezone.utc)
 
 
 def _determination_then_three_new(reqs, t):
@@ -101,16 +105,16 @@ def _determination_then_three_new(reqs, t):
 
 def synthetic_determination_cycle_day(day=datetime(2026, 7, 15)):
     """The fastest alert/ended cycling the rule allows by determinations: an episode starts
-    at 10:30 AM, a determination lands a minute later (ended on the next tick), and silence
+    at the window's opening (10:00 AM), a determination lands a minute later (ended on the next tick), and silence
     must then build 90 minutes before the next episode. Three requests always waiting:
     three before the day opens, and three new ones after every determination."""
     start = _window_start(day)
-    end = start + timedelta(hours=9, minutes=30)
+    end = _window_end(day)
     reqs = []
-    # three undetermined requests that never age out inside the window (arrived 9:00 AM)
+    # three undetermined requests that never age out inside the window (arrived 90 minutes before it opens)
     for i in range(3):
         reqs.append(Request(req_ts=start - timedelta(minutes=90 + i), det_ts=None))
-    # a determination 8 PM the evening before, so the day opens silent
+    # a determination 14 h 30 min before the window opens (7:30 PM the evening before), so the day opens silent
     reqs.append(Request(req_ts=start - timedelta(hours=16), det_ts=start - timedelta(hours=14, minutes=30)))
     # greedy: whenever the rule fires, a determination lands one minute later
     t = start
@@ -126,12 +130,12 @@ def synthetic_aging_flap_day(day=datetime(2026, 7, 15)):
     """An episode ending because the waiting count fell below 3 as a request aged past 14 hours,
     restarting when a fresh request reached 30 minutes (no determination), and then the fastest
     determination cycling for the rest of the day. Without a determination the waiting count can
-    only fall by aging out, and every fresh request stays in the 14-hour window past 8 PM, so the
+    only fall by aging out, and every fresh request stays in the 14-hour window past 10 PM, so the
     count can cross the 3 boundary downward at most once per day: the flap adds two messages."""
     start = _window_start(day)
-    end = start + timedelta(hours=9, minutes=30)
+    end = _window_end(day)
     reqs = [Request(req_ts=start - timedelta(hours=16), det_ts=start - timedelta(hours=14, minutes=30))]
-    # two requests always waiting (arrived 9:00 AM, never age out before 8 PM)
+    # two requests always waiting (arrived 90 minutes before the window opens, never age out before 10 PM)
     reqs += [Request(req_ts=start - timedelta(minutes=90 + i), det_ts=None) for i in range(2)]
     # the third ages out at 10:35 (arrived 14 h before); a fresh one reaches 30 minutes at 11:00
     reqs.append(Request(req_ts=start + timedelta(minutes=5) - timedelta(hours=14), det_ts=None))

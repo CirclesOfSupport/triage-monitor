@@ -23,11 +23,11 @@ def test_replay_on_synthetic_csv(tmp_path):
     assert len(loaded) == len(reqs)
     every, due, ticks, reads, in_window_ticks = replay.run(loaded, s0 - timedelta(hours=2), s1 + timedelta(hours=1))
     assert [(a, b) for a, b, *_ in every] == due  # read-when-due fires on the same ticks
-    assert every[0][1] == "alert" and every[0][0].astimezone(CENTRAL).strftime("%H:%M") == "10:30"
+    assert every[0][1] == "alert" and every[0][0].astimezone(CENTRAL).strftime("%H:%M") == "10:00"
     assert reads < ticks
 
 
 def test_daily_cap_never_reached_on_synthetic_worst_days():
     for name, n, kinds in replay.worst_days():
         assert n < replay.DAILY_CAP, (name, n, kinds)
-    assert replay.worst_days()[0][1] == 12  # the determination-cycle ceiling
+    assert replay.worst_days()[0][1] == 16  # the determination-cycle ceiling in the 12-hour window

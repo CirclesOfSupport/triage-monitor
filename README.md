@@ -20,9 +20,13 @@ counts twice).
   already passed over, or whose determination was lost; it says nothing about whether triage
   is reaching them now, so it does not count.
 - **Alert** when silence is 90 minutes or more AND waiting is 3 or more AND the Central
-  clock (`America/Chicago`) is at or after 10:30 AM and before 8:00 PM, every day of the
+  clock (`America/Chicago`) is at or after 10:00 AM and before 10:00 PM, every day of the
   week. Nothing outside that window: a break that starts overnight is announced at
-  10:30 AM. Alert thresholds come from two months of history (every rule and window was
+  10:00 AM. The hours are the ones Circles of Support asked for on 2026-10-08, 11 AM to
+  11 PM Eastern, which is 10 AM to 10 PM Central all year (both zones change their clocks
+  on the same nights); they replaced 10:30 AM to 8:00 PM, which came from the data, on
+  2026-10-19.
+  Alert thresholds come from two months of history (every rule and window was
   back-tested; the chosen one would have caught the 2026-09-25 outage at 5:10 PM, 95 minutes
   after the last determination). The waiting count was narrowed to requests that came in
   after the latest determination on 2026-10-14, after the first live false alarm: that
@@ -91,11 +95,12 @@ The triage rule is not affected: it recomputes everything from the table on ever
 - **The service reads BigQuery only when the alert could possibly be true.** After each read
   it computes the earliest moment worth looking again: the later of (latest determination +
   90 minutes) and (the moment a third undetermined request reaches 30 minutes of waiting;
-  with fewer than three undetermined, 30 minutes from now); outside the window, 10:30 AM.
+  with fewer than three undetermined, 30 minutes from now); outside the window, 10:00 AM.
   Looking early is harmless; the formula never looks late (proven by replay — see below).
   That moment is held in memory; a tick before it answers "not due" without touching
   BigQuery; an instance with no memory reads. While an alert is on, it reads every tick,
-  because only a read can see the episode end. About 9 reads a day on a normal day.
+  because only a read can see the episode end. About 15 reads a day on average over
+  2026-08-01 to 2026-10-19.
 - **No stored state.** Every decision is a pure function of the tick time and the table:
   the start of an alert episode is found by walking the 5-minute grid back while the rule
   holds; reminders go out on the ticks 2 hours, 4 hours, … after the start; the episode
@@ -174,7 +179,7 @@ message cannot be taken for the alert it closes:
 | `alert` | *[Early Alert] TRIAGE SILENT: 1 h 33 min, 4 new requests waiting* |
 | `repeat` | *[Early Alert] TRIAGE STILL SILENT: 3 h 33 min, 9 new requests waiting* |
 | `ended` by a determination | *[Early Alert] TRIAGE RESUMED: determination at 1:23 PM CT* |
-| `ended` at 8 PM, still silent | *[Early Alert] TRIAGE STILL SILENT: monitor hours over until 10:30 AM CT, 44 new requests waiting* |
+| `ended` at 10 PM, still silent | *[Early Alert] TRIAGE STILL SILENT: monitor hours over until 10:00 AM CT, 44 new requests waiting* |
 | `ended`, fewer than 3 waiting | *[Early Alert] TRIAGE NOT RESOLVED: alert ended, fewer than 3 new requests waiting* |
 | `email_alert` | *[Early Alert] EMAIL NOT ARRIVING: TextIt test emails, none since 1:02 PM CT* |
 | `email_repeat` | *[Early Alert] EMAIL STILL NOT ARRIVING: TextIt test emails, none since 1:02 PM CT* |
@@ -187,7 +192,7 @@ The words are in `src/messages.py`. The log line keeps its own, older wording
 |---|---|---|
 | `alert` | the first tick the rule holds | *Early Alert: triage has been silent 1 h 33 min — 4 new requests waiting* |
 | `repeat` | every 2 hours while it holds | *Early Alert: triage still silent 3 h 33 min — 9 new requests waiting* |
-| `ended` | the first tick it no longer holds | *Early Alert: triage resumed — determination at 1:23 PM CT on Sat Aug 15*; or, when the window closes with the alert still on, *Early Alert: triage STILL silent — monitoring hours over until 10:30 AM CT; 44 new requests waiting* (its first words say it is not resolved); or *Early Alert: triage NOT resolved — alert ended, fewer than 3 new requests waiting* |
+| `ended` | the first tick it no longer holds | *Early Alert: triage resumed — determination at 1:23 PM CT on Sat Aug 15*; or, when the window closes with the alert still on, *Early Alert: triage STILL silent — monitoring hours over until 10:00 AM CT; 44 new requests waiting* (its first words say it is not resolved); or *Early Alert: triage NOT resolved — alert ended, fewer than 3 new requests waiting* |
 | `test` | `POST /tick` with body `{"test": "alert"}`, then 5 minutes later `{"test": "ended"}` | the alert message and the ended message with the live numbers, prefixed `TEST —`, one tick apart on purpose (see the cap below) |
 
 The email-check kinds (`email_alert`, `email_repeat`, `email_ended`) are written to the same
@@ -251,15 +256,15 @@ one every 5 minutes (Cloud Monitoring quotas and limits). That cap now bounds on
 second copy: the service's own email has no such limit and is the channel of record. The
 triage rule alone cannot reach it: an
 episode needs 90 minutes of silence to start and ends on the tick after a determination
-lands, so the fastest possible day is six alert/ended pairs — 12 messages; a day on which
-the waiting count also fell below 3 by aging out and climbed back costs a cycle slot and
-stays at 12 (both measured by `replay/replay.py` on synthetic worst days, in which three new
+lands, so the fastest possible day in the 12-hour window is eight alert/ended pairs — 16
+messages; a day on which the waiting count also fell below 3 by aging out and climbed back
+costs a cycle slot and stays at 16 (both measured by `replay/replay.py` on synthetic worst days, in which three new
 requests come in after every determination, since older ones no longer count). Over the
-2026-08-01 to 2026-10-14 history the most in one day was 6 (the outage, Sep 26). The
+2026-08-01 to 2026-10-19 history the most in one day was 7 (the outage, Sep 26). The
 replay fails if any day reaches 20. The test switch sends its two messages 5 minutes apart
 so the one-per-5-minutes limit is exercised, not skipped. An email outage lasting a whole
 day adds up to 13 more (one alert, a reminder every 2 hours, one all-clear), so on a day
-with both at their worst the copy would drop the last five of 25; the emails still go.
+with both at their worst the copy would drop the last nine of 29; the emails still go.
 
 ## Observability
 
@@ -278,7 +283,7 @@ resource.type="cloud_run_revision" AND resource.labels.service_name="triage-moni
 
 ```
 python3 -m pytest -q tests
-python3 replay/replay.py <history.csv> 2026-08-01T05:00:00Z 2026-10-14T16:30:00Z
+python3 replay/replay.py <history.csv> 2026-08-01T05:00:00Z 2026-10-19T16:00:00Z
 ```
 
 The tests need nothing but this repository; TextIt, the mailbox and SMTP are replaced by
@@ -291,14 +296,24 @@ days, exactly as the service's query returns them), prints every alert, reminder
 message it would have sent, repeats the run with the read-only-when-due schedule and checks
 the two fire on identical ticks, then checks the daily cap.
 
-Result on 2026-08-01 to 2026-10-14 (75 days, 21,451 ticks, 6,958 requests): five normal
-episodes — Sat Aug 15 (7:50 PM), Sun Aug 16 (11:15 AM), Sun Aug 23 (2:25 PM), Thu Aug 27
-(5:40 PM), Sun Oct 11 (4:00 PM) — and the outage: Fri Sep 25 at 5:10 PM and Sat Sep 26 at
-10:30 AM. No others. Before the waiting count was narrowed (2026-10-14) the same history gave
-four more, each set off only by requests that had come in before the last determination: Sun
-Aug 9 (11:35 AM and 5:55 PM), Sat Aug 15 (11:05 AM) and Wed Oct 14 (10:30 AM, the false alarm
-that led to the change); and two gaps started earlier, Sat Aug 15 at 7:25 PM and Sun Aug 16 at
-10:30 AM. Read-when-due: 915 reads over 21,451 ticks, identical events.
+Result at the current hours (10:00 AM to 10:00 PM CT, Amendment 3), 2026-08-01 to
+2026-10-19 11:00 AM CT (80 days, 22,885 ticks, 7,346 requests; the history now includes the
+determinations recovered on 2026-10-16): eleven episodes, first alerts Thu Aug 6 (8:05 PM),
+Fri Aug 7 (10:00 AM), Sat Aug 15 (7:50 PM), Sun Aug 16 (11:15 AM), Sun Aug 23 (2:25 PM), Thu
+Aug 27 (5:40 PM), Fri Sep 25 (5:10 PM, the outage, until the 10 PM close) and Sat Sep 26
+(10:00 AM, the outage again), Fri Oct 2 (8:45 PM), Sat Oct 3 (10:00 AM) and Sun Oct 11 (4:00
+PM). No others. The same eleven, tick for tick (first alert, end, minutes alerting, most
+waiting, longest silence), as an independent SQL replay of the rule run in BigQuery the same
+day. Four of them are new with the wider hours: two evening silences of about 2 hours with 6
+requests waiting (Aug 6, Oct 2), each ended by a determination within 45 minutes, and two
+overnight backlogs at the 10:00 AM opening (Aug 7, Oct 3), each ended by the day's first
+determination within 15 minutes; the outage is covered two hours longer on its first evening
+and from 10:00 AM the next morning. At the old hours (10:30 AM to 8:00 PM) the 2026-08-01 to
+2026-10-14 history gave seven of these (the outage's second day from 10:30 AM). Before the
+waiting count was narrowed (2026-10-14) that history gave four more at the old hours, each set
+off only by requests that had come in before the last determination, among them Wed Oct 14
+(10:30 AM, the false alarm that led to the change). Read-when-due: 1,223 reads over 22,885
+ticks, identical events; the most messages in one Central day, 7 (Sep 26).
 
 ## Running it by hand
 

@@ -4,7 +4,8 @@ Nothing in this module talks to BigQuery, the clock, or the log. Every decision
 is a function of the tick time and the set of requests, so the same code can be
 replayed over history and unit-tested at the edges.
 
-The rule (approved 2026-10-04; waiting narrowed 2026-10-14, Amendment 2):
+The rule (approved 2026-10-04; waiting narrowed 2026-10-14, Amendment 2; hours 2026-10-19,
+Amendment 3):
 
   silence  = minutes since the latest determination_time
   waiting  = requests whose triage_request_time is at least 30 minutes and at
@@ -12,7 +13,8 @@ The rule (approved 2026-10-04; waiting narrowed 2026-10-14, Amendment 2):
              in after the latest determination_time (with no determination in
              the 3-day lookback, every such request counts)
   ALERT when silence >= 90 AND waiting >= 3 AND the Central clock
-  (America/Chicago) is at or after 10:30 AM and before 8:00 PM, every day.
+  (America/Chicago) is at or after 10:00 AM and before 10:00 PM, every day
+  (the hours asked for on 2026-10-08: 11 AM to 11 PM Eastern, 10 AM to 10 PM Central all year).
 
 A request that came in before the latest determination is one the counselors
 have already passed over (or whose determination was lost); it says nothing
@@ -32,8 +34,8 @@ from typing import Iterable, Optional
 from zoneinfo import ZoneInfo
 
 CENTRAL = ZoneInfo("America/Chicago")
-WINDOW_START = time(10, 30)
-WINDOW_END = time(20, 0)  # exclusive
+WINDOW_START = time(10, 0)
+WINDOW_END = time(22, 0)  # exclusive
 SILENCE_MINUTES = 90
 WAIT_MIN_MINUTES = 30
 WAIT_MAX_HOURS = 14
@@ -264,11 +266,11 @@ def compose(d: Decision, test: bool = False, email_line: Optional[str] = None) -
             # waited 30 minutes (rule.measure), so it would always read 0.
             headline = f"A triage determination landed at {last}."
         elif d.ended_reason == "window_closed":
-            subject = f"{prefix}Early Alert: triage STILL silent — monitoring hours over until 10:30 AM CT; {m.waiting} new requests waiting"
+            subject = f"{prefix}Early Alert: triage STILL silent — monitoring hours over until 10:00 AM CT; {m.waiting} new requests waiting"
             headline = (
                 f"Triage is STILL silent: no determination since {last} ({silent}), and {m.waiting} requests are "
-                f"still waiting. This is not resolved. The monitor's hours are over for today (10:30 AM to 8:00 PM CT); "
-                f"nothing will be sent until it checks again at 10:30 AM CT."
+                f"still waiting. This is not resolved. The monitor's hours are over for today (10:00 AM to 10:00 PM CT); "
+                f"nothing will be sent until it checks again at 10:00 AM CT."
             )
         else:
             subject = f"{prefix}Early Alert: triage NOT resolved — alert ended, fewer than 3 new requests waiting"

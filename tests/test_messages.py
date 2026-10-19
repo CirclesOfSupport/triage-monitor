@@ -77,7 +77,7 @@ def test_a_closing_message_shares_no_opening_word_with_the_alert_it_closes():
     assert m["waiting_fell"][0] == "[Early Alert] TRIAGE NOT RESOLVED: alert ended, fewer than 3 new requests waiting"
     assert m["waiting_fell"][1].startswith("Triage is NOT resolved.")
     assert first("email_ended") not in (first("email_alert"), first("email_repeat"))
-    # the 8 PM message is not a closing message: it must read as still on
+    # the 10 PM message is not a closing message: it must read as still on
     assert first("window_closed") == "STILL" and "NOT resolved" in m["window_closed"][1]
 
 
@@ -152,7 +152,10 @@ def test_every_triage_subject_with_a_count_says_new_requests():
     assert m["alert"][0] == "[Early Alert] TRIAGE SILENT: 1 h 33 min, 4 new requests waiting"
     assert m["repeat"][0] == "[Early Alert] TRIAGE STILL SILENT: 1 h 33 min, 4 new requests waiting"
     assert m["window_closed"][0] == (
-        "[Early Alert] TRIAGE STILL SILENT: monitor hours over until 10:30 AM CT, 4 new requests waiting")
+        "[Early Alert] TRIAGE STILL SILENT: monitor hours over until 10:00 AM CT, 4 new requests waiting")
+    body = m["window_closed"][1]
+    assert "The monitor's hours are over for today (10:00 AM to 10:00 PM CT)." in body
+    assert "until it checks again at 10:00 AM CT." in body and "10:30" not in body and "8:00 PM" not in body
     assert m["waiting_fell"][0] == "[Early Alert] TRIAGE NOT RESOLVED: alert ended, fewer than 3 new requests waiting"
     assert m["resumed"][0] == "[Early Alert] TRIAGE RESUMED: determination at 12:27 PM CT"
     one = decide(silent(NOW), NOW)

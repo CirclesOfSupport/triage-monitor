@@ -115,12 +115,12 @@ def triage(d: Decision, line: Optional[str], now: datetime, test: bool = False) 
             + checks + "\n"
         )
     elif d.ended_reason == "window_closed":
-        subject = f"TRIAGE STILL SILENT: monitor hours over until 10:30 AM CT, {new_waiting}"
+        subject = f"TRIAGE STILL SILENT: monitor hours over until 10:00 AM CT, {new_waiting}"
         body = (
             f"Triage is STILL silent. This is NOT resolved.\n"
             f"No determination since {since}{silent_par}; {newer} {are} still waiting.\n\n"
-            "The monitor's hours are over for today (10:30 AM to 8:00 PM CT). Nothing more will be "
-            "sent until it checks again at 10:30 AM CT.\n\n" + checks + "\n"
+            "The monitor's hours are over for today (10:00 AM to 10:00 PM CT). Nothing more will be "
+            "sent until it checks again at 10:00 AM CT.\n\n" + checks + "\n"
         )
     else:
         subject = "TRIAGE NOT RESOLVED: alert ended, fewer than 3 new requests waiting"

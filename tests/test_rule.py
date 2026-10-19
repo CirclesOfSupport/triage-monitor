@@ -31,48 +31,105 @@ def silent_with_waiting(at, n=3, last_det_minutes_ago=100):
 # ---- window edges, standard time (December) and daylight time (July) -------
 
 def test_window_edges_standard_time():
-    assert not in_window(ct(2026, 12, 10, 10, 29))
-    assert in_window(ct(2026, 12, 10, 10, 30))
-    assert in_window(ct(2026, 12, 10, 19, 59))
-    assert not in_window(ct(2026, 12, 10, 20, 0))
-    # 10:30 AM CST is 16:30 UTC
-    assert ct(2026, 12, 10, 10, 30) == datetime(2026, 12, 10, 16, 30, tzinfo=UTC)
+    assert not in_window(ct(2026, 12, 10, 9, 55))
+    assert not in_window(ct(2026, 12, 10, 9, 59))
+    assert in_window(ct(2026, 12, 10, 10, 0))
+    assert in_window(ct(2026, 12, 10, 21, 55))
+    assert in_window(ct(2026, 12, 10, 21, 59))
+    assert not in_window(ct(2026, 12, 10, 22, 0))
+    # 10:00 AM CST is 16:00 UTC; 10:00 PM CST is 04:00 UTC the next day
+    assert ct(2026, 12, 10, 10, 0) == datetime(2026, 12, 10, 16, 0, tzinfo=UTC)
+    assert ct(2026, 12, 10, 22, 0) == datetime(2026, 12, 11, 4, 0, tzinfo=UTC)
 
 
 def test_window_edges_daylight_time():
-    assert not in_window(ct(2026, 7, 15, 10, 29))
-    assert in_window(ct(2026, 7, 15, 10, 30))
-    assert in_window(ct(2026, 7, 15, 19, 59))
-    assert not in_window(ct(2026, 7, 15, 20, 0))
-    # 10:30 AM CDT is 15:30 UTC
-    assert ct(2026, 7, 15, 10, 30) == datetime(2026, 7, 15, 15, 30, tzinfo=UTC)
+    assert not in_window(ct(2026, 7, 15, 9, 55))
+    assert not in_window(ct(2026, 7, 15, 9, 59))
+    assert in_window(ct(2026, 7, 15, 10, 0))
+    assert in_window(ct(2026, 7, 15, 21, 55))
+    assert in_window(ct(2026, 7, 15, 21, 59))
+    assert not in_window(ct(2026, 7, 15, 22, 0))
+    # 10:00 AM CDT is 15:00 UTC; 10:00 PM CDT is 03:00 UTC the next day
+    assert ct(2026, 7, 15, 10, 0) == datetime(2026, 7, 15, 15, 0, tzinfo=UTC)
+    assert ct(2026, 7, 15, 22, 0) == datetime(2026, 7, 16, 3, 0, tzinfo=UTC)
 
 
-def test_rule_does_not_fire_at_1029_and_fires_at_1030():
+def test_the_window_is_eleven_to_eleven_eastern_all_year():
+    et = ZoneInfo("America/New_York")
+    for day in ((2026, 12, 10), (2026, 7, 15), (2026, 11, 1), (2027, 3, 14)):
+        assert ct(*day, 10, 0).astimezone(et).hour == 11
+        assert ct(*day, 22, 0).astimezone(et).hour == 23
+
+
+def test_rule_does_not_fire_at_0955_and_fires_at_1000():
     for day in ((2026, 12, 10), (2026, 7, 15)):
-        before = ct(*day, 10, 25)
+        before = ct(*day, 9, 55)
         reqs = silent_with_waiting(before)
         assert not decide(reqs, before).now.fires
-        at = ct(*day, 10, 30)
+        at = ct(*day, 10, 0)
         d = decide(reqs, at)
         assert d.now.fires and d.kind == "alert"
 
 
-def test_rule_stops_at_2000_with_window_closed_reason():
+def test_rule_holds_at_2155_and_stops_at_2200_with_window_closed_reason():
     for day in ((2026, 12, 10), (2026, 7, 15)):
-        at = ct(*day, 19, 55)
+        at = ct(*day, 21, 55)
         reqs = silent_with_waiting(at)
         assert decide(reqs, at).now.fires
-        d = decide(reqs, ct(*day, 20, 0))
+        d = decide(reqs, ct(*day, 22, 0))
         assert not d.now.fires and d.kind == "ended" and d.ended_reason == "window_closed"
 
 
+def test_the_old_hours_no_longer_bound_the_window():
+    # 10:00-10:25 AM and 8:00-9:55 PM were outside the old hours (10:30 AM-8:00 PM) and are inside now
+    for day in ((2026, 12, 10), (2026, 7, 15)):
+        for hh, mm in ((10, 0), (10, 25), (20, 0), (21, 55)):
+            at = ct(*day, hh, mm)
+            assert in_window(at) and decide(silent_with_waiting(at), at).kind == "alert"
+
+
+def test_next_window_start_is_ten_am():
+    for t, nxt in (
+        (ct(2026, 7, 15, 3, 0), ct(2026, 7, 15, 10, 0)),    # before the window: today 10 AM
+        (ct(2026, 7, 15, 9, 59), ct(2026, 7, 15, 10, 0)),
+        (ct(2026, 7, 15, 10, 0), ct(2026, 7, 16, 10, 0)),   # at or after the opening: tomorrow
+        (ct(2026, 7, 15, 22, 0), ct(2026, 7, 16, 10, 0)),
+        (ct(2026, 12, 10, 23, 30), ct(2026, 12, 11, 10, 0)),
+    ):
+        assert next_window_start(t) == nxt
+
+
 def test_next_window_start_rolls_to_tomorrow_across_dst():
-    # 8 PM CDT on the last daylight day -> 10:30 AM CST next day (an extra hour long night)
-    t = ct(2026, 10, 31, 20, 0)
+    # fall back: 10 PM CDT on the last daylight day -> 10:00 AM CST next day, a 13-hour night
+    t = ct(2026, 10, 31, 22, 0)
     nxt = next_window_start(t)
-    assert nxt == ct(2026, 11, 1, 10, 30)
-    assert nxt - t == timedelta(hours=15, minutes=30)
+    assert nxt == ct(2026, 11, 1, 10, 0) == datetime(2026, 11, 1, 16, 0, tzinfo=UTC)
+    assert nxt - t == timedelta(hours=13)
+    # spring forward: 10 PM CST -> 10:00 AM CDT next day, an 11-hour night
+    t = ct(2027, 3, 13, 22, 0)
+    nxt = next_window_start(t)
+    assert nxt == ct(2027, 3, 14, 10, 0) == datetime(2027, 3, 14, 15, 0, tzinfo=UTC)
+    assert nxt - t == timedelta(hours=11)
+
+
+def test_next_due_across_the_ten_pm_close_is_ten_am_tomorrow():
+    # last determination 9:00 PM: the earliest it could alert (10:30 PM) is after the close
+    for day, tomorrow in (((2026, 7, 15), (2026, 7, 16)), ((2026, 10, 31), (2026, 11, 1)),
+                          ((2027, 3, 13), (2027, 3, 14))):
+        at = ct(*day, 21, 30)
+        reqs = [Request(req_ts=at - timedelta(hours=2), det_ts=ct(*day, 21, 0))]
+        reqs += [Request(req_ts=ct(*day, 21, 5) + timedelta(minutes=i), det_ts=None) for i in range(3)]
+        m = measure(reqs, at)
+        assert not m.fires and m.in_window
+        assert next_due(reqs, at, m) == ct(*tomorrow, 10, 0)
+    # last determination 8:00 PM: 9:30 PM is still inside, so it looks then
+    at = ct(2026, 7, 15, 20, 30)
+    reqs = [Request(req_ts=at - timedelta(hours=2), det_ts=ct(2026, 7, 15, 20, 0))]
+    reqs += [Request(req_ts=ct(2026, 7, 15, 20, 5) + timedelta(minutes=i), det_ts=None) for i in range(3)]
+    assert next_due(reqs, at, measure(reqs, at)) == ct(2026, 7, 15, 21, 30)
+    # outside the window, it is the next opening
+    at = ct(2026, 7, 15, 22, 0)
+    assert next_due([], at, measure([], at)) == ct(2026, 7, 16, 10, 0)
 
 
 # ---- waiting age 29 / 30 minutes and the 14-hour cap ------------------------
@@ -132,8 +189,8 @@ def todays_shape():
 
 def test_todays_shape_three_older_than_the_last_determination_never_alerts():
     reqs = todays_shape()
-    for minutes in range(0, 120, 5):  # 10:30 AM to 12:25 PM
-        at = ct(2026, 10, 14, 10, 30) + timedelta(minutes=minutes)
+    for minutes in range(0, 150, 5):  # 10:00 AM (the window's opening) to 12:25 PM
+        at = ct(2026, 10, 14, 10, 0) + timedelta(minutes=minutes)
         d = decide(reqs, at)
         assert d.now.waiting == 0 and d.kind is None and not d.now.fires, at
     m = measure(reqs, ct(2026, 10, 14, 10, 30))
@@ -144,7 +201,9 @@ def test_three_that_came_in_after_the_last_determination_alert():
     reqs = todays_shape()
     det = reqs[-1].det_ts
     reqs += [Request(req_ts=det + timedelta(minutes=1 + i), det_ts=None) for i in range(3)]
-    d = decide(reqs, ct(2026, 10, 14, 10, 30))
+    # 90 minutes of silence after 8:48:44 AM are up at 10:18:44, inside the window: the 10:20 tick alerts
+    assert not decide(reqs, ct(2026, 10, 14, 10, 15)).now.fires
+    d = decide(reqs, ct(2026, 10, 14, 10, 20))
     assert d.now.waiting == 3 and d.kind == "alert"
 
 
@@ -198,13 +257,13 @@ def test_14_hour_edge_after_a_determination_15_hours_ago():
 def test_episode_start_waits_for_the_third_request_after_the_last_determination():
     # silence is over 90 minutes from the window's start, three leftovers wait from before the
     # last determination, and three new requests reach 30 minutes at 11:15: the episode starts
-    # at 11:15, not at 10:30
+    # at 11:15, not at the window's opening (10:00)
     day = (2026, 7, 15)
     det = ct(*day, 8, 0)
     reqs = [Request(req_ts=det - timedelta(minutes=1), det_ts=det)]
     reqs += [Request(req_ts=det - timedelta(hours=2, minutes=i), det_ts=None) for i in range(3)]
     reqs += [Request(req_ts=ct(*day, 10, 45) - timedelta(minutes=i), det_ts=None) for i in range(3)]
-    assert decide(reqs, ct(*day, 10, 30)).kind is None
+    assert decide(reqs, ct(*day, 10, 0)).kind is None and decide(reqs, ct(*day, 10, 30)).kind is None
     assert not measure(reqs, ct(*day, 11, 10)).fires
     d = decide(reqs, ct(*day, 11, 15))
     assert d.kind == "alert" and d.episode_start == ct(*day, 11, 15) and d.now.waiting == 3
@@ -335,10 +394,12 @@ def test_next_due_is_never_late_with_requests_before_and_after_the_last_determin
 
 
 def test_next_due_outside_window_is_next_window_start():
-    at = ct(2026, 7, 15, 21, 0)
+    at = ct(2026, 7, 15, 22, 0)
     reqs = silent_with_waiting(at)
     m = measure(reqs, at)
-    assert next_due(reqs, at, m) == ct(2026, 7, 16, 10, 30)
+    assert next_due(reqs, at, m) == ct(2026, 7, 16, 10, 0)
+    at = ct(2026, 7, 16, 6, 0)  # overnight: the same morning's opening
+    assert next_due(reqs, at, measure(reqs, at)) == ct(2026, 7, 16, 10, 0)
 
 
 def test_next_due_while_alerting_is_next_tick():
@@ -420,11 +481,14 @@ def test_test_switch_writes_alert_then_ended_one_tick_apart(capsys):
 
 
 def test_window_closed_message_says_still_silent_and_hours_over():
-    at = ct(2026, 7, 15, 19, 55)
+    at = ct(2026, 7, 15, 21, 55)
     reqs = silent_with_waiting(at)
-    d = decide(reqs, ct(2026, 7, 15, 20, 0))
+    d = decide(reqs, ct(2026, 7, 15, 22, 0))
     msg = compose(d)
     assert msg["subject"].startswith("Early Alert: triage STILL silent")
     assert msg["headline"].startswith("Triage is STILL silent")
-    assert "hours are over" in msg["headline"] and "10:30 AM" in msg["headline"]
+    assert "hours are over" in msg["headline"] and "(10:00 AM to 10:00 PM CT)" in msg["headline"]
+    assert "checks again at 10:00 AM CT" in msg["headline"]
+    assert msg["subject"].startswith("Early Alert: triage STILL silent — monitoring hours over until 10:00 AM CT;")
+    assert "10:30" not in msg["subject"] + msg["headline"] and "8:00 PM" not in msg["headline"]
     assert "resolved" not in msg["subject"] and "resumed" not in msg["headline"]
