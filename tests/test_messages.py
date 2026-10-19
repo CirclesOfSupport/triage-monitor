@@ -38,14 +38,14 @@ def every_message():
     d_window = replace(d_alert, kind="ended", ended_reason="window_closed")
     d_fell = replace(d_alert, kind="ended", ended_reason="waiting_fell")
     since = ct(2026, 10, 7, 13, 2)
-    sent = (ct(2026, 10, 7, 14, 0), ct(2026, 10, 7, 14, 10))
+    sent = (ct(2026, 10, 7, 14, 0), ct(2026, 10, 7, 14, 10), ct(2026, 10, 7, 14, 20))
     return {
         "alert": messages.triage(d_alert, LINE, NOW),
         "repeat": messages.triage(d_repeat, LINE, NOW),
         "resumed": messages.triage(d_resumed, None, NOW),
         "window_closed": messages.triage(d_window, None, NOW),
         "waiting_fell": messages.triage(d_fell, None, NOW),
-        "email_alert": messages.email_check(Message("email_alert", NOW + 20 * MIN, since, sent), NOW + 20 * MIN),
+        "email_alert": messages.email_check(Message("email_alert", NOW + 30 * MIN, since, sent), NOW + 30 * MIN),
         "email_repeat": messages.email_check(Message("email_repeat", NOW + 140 * MIN, since, sent), NOW + 140 * MIN),
         "email_ended": messages.email_check(
             Message("email_ended", NOW + 190 * MIN, since, arrived=ct(2026, 10, 7, 17, 2)), NOW + 190 * MIN),
@@ -102,10 +102,11 @@ def test_the_alert_and_the_reminder_carry_the_email_line_and_the_numbers():
         assert "Email check" not in m[name][1]
 
 
-def test_email_messages_name_the_last_arrival_and_the_two_tests():
+def test_email_messages_name_the_last_arrival_and_the_three_tests():
     m = every_message()
     assert m["email_alert"][0] == "[Early Alert] EMAIL NOT ARRIVING: TextIt test emails, none since 1:02 PM CT"
-    assert "Two tests were sent (2:00 PM CT and 2:10 PM CT) and neither reached the mailbox." in m["email_alert"][1]
+    assert "Three tests were sent (2:00 PM CT, 2:10 PM CT and 2:20 PM CT) and none reached the mailbox." in m["email_alert"][1]
+    assert "Three tests in a row, 10 minutes apart, must go missing" in m["email_alert"][1]
     assert m["email_repeat"][0] == "[Early Alert] EMAIL STILL NOT ARRIVING: TextIt test emails, none since 1:02 PM CT"
     assert m["email_ended"][0] == "[Early Alert] EMAIL ARRIVING AGAIN: TextIt test email at 5:02 PM CT"
     assert "None had arrived since 1:02 PM CT." in m["email_ended"][1]

@@ -10,14 +10,25 @@ on the 5-minute tick:
 
   1. no test started yet -> start one (reference = the tick time);
   2. 10 minutes later    -> read the mailbox; the test is there -> ARRIVING;
-                            not there -> start one more (the retry);
-  3. 10 minutes later    -> read again; either test there -> ARRIVING;
-                            neither -> NOT ARRIVING.
+                            not there -> start a second;
+  3. 10 minutes later    -> read again; any of the hour's tests there -> ARRIVING;
+                            none -> start a third;
+  4. 10 minutes later    -> read again; any there -> ARRIVING; none -> NOT ARRIVING.
 
 The guard against a false alarm: NOT ARRIVING needs, in this instance's memory,
-two starts TextIt accepted in this hour, each at least 10 minutes old, and a
-mailbox read that succeeded and found neither. A lost memory, a refused start
-or a failed read gives no verdict for the hour, never an alert.
+three starts TextIt accepted in this hour, each at least 10 minutes old, and a
+mailbox read that succeeded and found none of them. A lost memory, a refused
+start or a failed read gives no verdict for the hour, never an alert.
+
+Why three (2026-10-19): in the five days to 10-19 five first tests were still
+not in the mailbox 20 minutes after their start, and the second test of each of
+those hours arrived within seconds. With two tests, two such losses in one hour
+would be a false alarm; three in a row, 10 minutes apart, is the evidence asked
+for. See the README's first section.
+
+A test of an earlier hour that turns up after its hour was decided is logged
+once (`late_arrival`, with the minutes after its start), so a lost test can be
+told from a late one. Nothing is sent for it.
 
 Nothing here talks to the network or the clock: the caller passes the time and
 three functions (start a test, read the mailbox, clean the mailbox), so every
@@ -34,8 +45,11 @@ from typing import Callable, List, Optional, Tuple
 from rule import tick_floor, utc
 
 WAIT = timedelta(minutes=10)  # start -> first look, and retry -> second look
-LAST_FIRST_START_MINUTE = 35  # a first test is not started after :35 (its cycle could not finish in the hour)
-LAST_RETRY_START_MINUTE = 45
+TESTS_PER_HOUR = 3
+# The latest minute of the hour at which the 1st, 2nd and 3rd test may be started. Each
+# start is followed by a look 10 minutes later, so a first start at :25 gives looks at :35,
+# :45 and the last at :55, the hour's last tick: the whole cycle fits inside the hour.
+LAST_START_MINUTE = (25, 35, 45)
 MAX_REFUSALS_PER_HOUR = 3
 REMIND_EVERY = timedelta(hours=2)
 KEEP = timedelta(days=2)  # how long a test message stays in the mailbox before it is moved to Trash
@@ -121,6 +135,11 @@ class MailCheck:
         self.result: Optional[Result] = None
         self.last_arrival: Optional[datetime] = None
         self.episode: Optional[Episode] = None
+        # References this instance has accounted for (seen in their hour, logged late, or
+        # already in the mailbox at this instance's first read); and when it started each test.
+        self.known: dict = {}
+        self.seeded = False
+        self.started_at: dict = {}
 
     # ------------------------------------------------------------ the tick
 
@@ -153,7 +172,7 @@ class MailCheck:
                 if mine:
                     self._arriving(now, t, mine, logs, msgs)
                     return logs, msgs
-            if t.minute <= LAST_FIRST_START_MINUTE:
+            if t.minute <= LAST_START_MINUTE[0]:
                 self._start(now, t, logs)
             return logs, msgs
 
@@ -167,10 +186,10 @@ class MailCheck:
         if mine:
             self._arriving(now, t, mine, logs, msgs)
             return logs, msgs
-        if len(self.starts) == 1:
+        if len(self.starts) < TESTS_PER_HOUR:
             logs.append({"action": "missing", "tick": t.isoformat(), "reference": latest.reference,
                          "waited_minutes": int((t - latest.tick).total_seconds() // 60)})
-            if t.minute <= LAST_RETRY_START_MINUTE:
+            if t.minute <= LAST_START_MINUTE[len(self.starts)]:
                 self._start(now, t, logs)
             return logs, msgs
         self._not_arriving(t, hour, logs, msgs)
@@ -193,7 +212,40 @@ class MailCheck:
             newest = max(a.arrived for a in arrivals)
             if self.last_arrival is None or newest > self.last_arrival:
                 self.last_arrival = newest
+        self._late(t, arrivals, logs)
         return arrivals
+
+    def _late(self, t: datetime, arrivals: List[Arrival], logs: List[dict]) -> None:
+        """One `late_arrival` line for each test of an earlier hour this instance has not
+        accounted for. At its first read an instance accounts for everything already in
+        the mailbox, so a new instance logs nothing for tests that came before it."""
+        oldest = t - KEEP - timedelta(days=1)
+        for ref in [r for r, at in self.known.items() if at < oldest]:
+            del self.known[ref]
+        for ref in [r for r, at in self.started_at.items() if at < oldest]:
+            del self.started_at[ref]
+        if not self.seeded:
+            self.seeded = True
+            for a in arrivals:
+                self.known[a.reference] = a.arrived
+            return
+        hour = hour_of(t)
+        for a in sorted(arrivals, key=lambda x: x.arrived):
+            if a.reference in self.known:
+                continue
+            try:
+                ref_time = reference_time(a.reference)
+            except ValueError:
+                continue
+            if hour_of(ref_time) >= hour:
+                continue
+            started = self.started_at.get(a.reference)
+            origin = started if started is not None else ref_time
+            self.known[a.reference] = a.arrived
+            logs.append({"action": "late_arrival", "tick": t.isoformat(), "reference": a.reference,
+                         "arrived": a.arrived.isoformat(),
+                         "minutes_after_start": round((a.arrived - origin).total_seconds() / 60, 1),
+                         "exact": started is not None})
 
     def _start(self, now: datetime, t: datetime, logs: List[dict]) -> None:
         if self.no_more_starts or self.refusals >= MAX_REFUSALS_PER_HOUR:
@@ -207,6 +259,7 @@ class MailCheck:
             ok, reason = False, f"{type(exc).__name__}: {exc}"[:200]
         if ok:
             self.starts.append(Start(reference=ref, tick=t, at=now))
+            self.started_at[ref] = now
             logs.append({"action": "started", "tick": t.isoformat(), "reference": ref,
                          "attempt": len(self.starts)})
             return
@@ -221,6 +274,8 @@ class MailCheck:
         self.verdict = "arriving"
         self.result = Result("arriving", t)
         tests = []
+        for a in mine:
+            self.known[a.reference] = a.arrived
         for a in sorted(mine, key=lambda x: x.arrived):
             started = next((s for s in self.starts if s.reference == a.reference), None)
             # exact: measured from the moment this instance asked TextIt. Otherwise the start
@@ -267,7 +322,7 @@ class MailCheck:
     # ------------------------------------------------------------ the test switch
 
     def force_misses(self, now: datetime) -> Tuple[List[dict], List[Message]]:
-        """Test switch: behave as if this hour's two tests were both missing. The mailbox is
+        """Test switch: behave as if this hour's three tests were all missing. The mailbox is
         really read (a failed read sends nothing). The message names the last arrival before
         this hour and no send times, since no test was really missed; every time in it is
         real. The hour's cycle is then reset, so the next scheduled tick looks again, finds the

@@ -165,10 +165,10 @@ def test_a_normal_hour_one_start_one_read_and_the_seconds_are_logged(svc, monkey
     assert main.email_line(NOON + 11 * MIN) == "Email check: test emails are arriving (last arrived 12:00 PM CT)."
 
 
-def test_two_misses_send_the_not_arriving_email_and_then_the_all_clear(svc, monkeypatch, capsys):
+def test_three_misses_send_the_not_arriving_email_and_then_the_all_clear(svc, monkeypatch, capsys):
     configure(monkeypatch)
     svc.box.append(Arrival(reference(NOON - 60 * MIN), NOON - 59 * MIN))
-    for i in range(5):
+    for i in range(7):
         main.run_tick(NOON + i * 5 * MIN, reader=quiet)
     logged = lines(capsys)
     notify = events(logged, "notify")
@@ -227,10 +227,10 @@ def test_an_email_check_that_blows_up_does_not_change_the_ticks_answer(svc, monk
 def test_the_triage_alert_carries_the_not_arriving_line(svc, monkeypatch, capsys):
     configure(monkeypatch)
     svc.box.append(Arrival(reference(NOON - 60 * MIN), NOON - 59 * MIN))
-    for i in range(5):
+    for i in range(7):
         main.run_tick(NOON + i * 5 * MIN, reader=quiet)
     main._memory["next_due"] = None
-    main.run_tick(NOON + 25 * MIN, reader=alerting)
+    main.run_tick(NOON + 35 * MIN, reader=alerting)
     assert svc.sent[-1]["subject"].startswith("[Early Alert] TRIAGE SILENT:")
     assert ("Email check: test emails are NOT arriving (last arrived 11:01 AM CT; tests since then have not arrived)."
             in svc.sent[-1]["body"])
@@ -294,7 +294,7 @@ def test_switch_email_misses_then_the_next_tick_sends_the_all_clear(svc, monkeyp
                         "[Early Alert] TEST - EMAIL ARRIVING AGAIN: TextIt test email at 12:00 PM CT"]
     bodies = [m["body"] for m in svc.sent]
     # every time in a test message is real: no invented send times
-    assert "Two tests were sent" not in bodies[0] and "The last test that arrived: 11:00 AM CT." in bodies[0]
+    assert "tests were sent" not in bodies[0] and "The last test that arrived: 11:00 AM CT." in bodies[0]
     assert "arrived at 12:00 PM CT" in bodies[1] and "None had arrived since 11:00 AM CT." in bodies[1]
     assert len(svc.starts) == 1
 

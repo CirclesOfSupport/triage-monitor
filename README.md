@@ -51,12 +51,22 @@ the table; this section does.
 "counselors are away" from "the triage email never arrived", and TextIt reports nothing
 about an email it sends. So once an hour, every hour of the day, the service has TextIt
 start one small flow that emails a test to a mailbox the service reads, and looks for it
-10 minutes later. A missing test is sent once more; when two in a row are missing the
-service sends "EMAIL NOT ARRIVING", reminds every 2 hours while it lasts, and says "EMAIL ARRIVING
-AGAIN" once when a test arrives. One late email never alerts, and neither does TextIt
-refusing to start the test or the mailbox being unreadable: those are logged as their own
-states. Every triage alert and reminder carries one line with this check's latest result.
+10 minutes later. A missing test is followed by another, up to three in the hour, 10 minutes
+apart; when all three are missing the service sends "EMAIL NOT ARRIVING", reminds every 2 hours
+while it lasts, and says "EMAIL ARRIVING AGAIN" once when a test arrives. One late or lost email
+never alerts, nor do two, and neither does TextIt refusing to start a test or the mailbox being
+unreadable: those are logged as their own states. The worst case from a break to the alert is
+90 minutes. Every triage alert and reminder carries one line with this check's latest result.
 `EMAIL_CHECK=off` turns it off without a deploy.
+
+**Why three tests, not two.** In the five days to 2026-10-19 (the monitor's own log, nothing
+about subscribers), five first tests were still not in the mailbox 20 minutes after their
+start, while the second test of each of those hours arrived within seconds. A test is
+sometimes lost, or held back, on its own; with only two tests, two such losses in one hour
+would have been a false "EMAIL NOT ARRIVING". A third test costs one more flow start in a bad
+hour and 10 minutes on the worst case (80 to 90). Each earlier hour's test that turns up after
+its hour was decided is logged once (`action=late_arrival`), so a lost test can be told from a
+late one.
 
 **If the way flow emails are sent changes** (TextIt's sender settings, the test flow, the
 test address or the mailbox it lands in), re-point the settings listed under
@@ -103,14 +113,19 @@ On each 5-minute tick (the minute is floored to the grid, so a tick a minute lat
 nothing):
 
 1. No test started this hour: start one. A new instance first reads the mailbox, so a test
-   that already arrived this hour is not sent again. No first test is started after :35.
-2. Ten minutes after a start: read the mailbox. The test is there: arriving, done for the
-   hour. Not there, and it was the first: start one more.
-3. Ten minutes after the second: read again. Either is there: arriving. Neither: not
-   arriving.
+   that already arrived this hour is not sent again.
+2. Ten minutes after a start: read the mailbox. Any of this hour's tests is there: arriving,
+   done for the hour. None there, and fewer than three were started: start the next one.
+3. Ten minutes after the third: read again. Any is there: arriving. None: not arriving.
 
-So a normal hour is one start at :00 and one read at :10; the worst hour ends at :20, and
-the longest time from a break to the alert is 80 minutes.
+The latest start allowed is :25 for the first test, :35 for the second and :45 for the third
+(`LAST_START_MINUTE`). Three starts 10 minutes apart and the look after the last take 30
+minutes, and :55 is the hour's last tick, so a first test started at :25 still finishes its
+cycle inside the hour; a test is never started that could not be looked at in its hour.
+
+So a normal hour is one start at :00 and one read at :10; the worst hour ends at :30, and
+the longest time from a break to the alert is 90 minutes (a break just after one hour's test
+arrived, then the next hour's three tests at :00, :10 and :20, and the alert at :30).
 
 - **The test's reference** is the start's UTC tick time, `EA-MC-<yyyymmdd>T<hhmm>Z`, passed
   to the flow as `@trigger.params.reference` (with `@trigger.params.sent_ct`, the Central
@@ -128,9 +143,15 @@ the longest time from a break to the alert is 80 minutes.
 - **Send-to-arrival seconds** are logged for every test that arrives (`action=seen`,
   `tests[].seconds`, `slowest_seconds`). The 10-minute wait is a constant
   (`WAIT` in `src/mailcheck.py`); change it only on those numbers.
-- **The guard against a false alarm:** "not arriving" needs two starts TextIt accepted in
-  this hour, both in this instance's memory, each at least 10 minutes old, and a mailbox read
-  that succeeded and found neither.
+- **Late arrivals** are logged on every read: a test whose reference is from an earlier hour,
+  not seen before by this instance, gets one `action=late_arrival` line with its reference,
+  `arrived`, and `minutes_after_start` (from the moment this instance asked TextIt when it
+  remembers it, `exact=true`; otherwise from the reference minute). Nothing is sent for it. A
+  new instance counts everything already in the mailbox at its first read as seen, so it does
+  not log old tests. A test that never turns up never gets a line: lost.
+- **The guard against a false alarm:** "not arriving" needs three starts TextIt accepted in
+  this hour, all in this instance's memory, each at least 10 minutes old, and a mailbox read
+  that succeeded and found none of them.
 
 ```
 resource.type="cloud_run_revision" AND resource.labels.service_name="triage-monitor" AND jsonPayload.event="mailcheck"
@@ -301,7 +322,7 @@ The caller needs Cloud Run Invoker on the service. The four test bodies:
 
 - `alert`, then `ended` 5 minutes later: a TEST triage alert and its TEST "resumed", by log
   line and by email, with the live numbers.
-- `email_misses`: the email check behaves as if this hour's two tests were missing. The
+- `email_misses`: the email check behaves as if this hour's three tests were missing. The
   mailbox is really read; a TEST "EMAIL NOT ARRIVING" goes out; the next scheduled tick looks
   again, finds the hour's real test and sends the TEST "EMAIL ARRIVING AGAIN". Both name the
   last test that arrived before this hour and no send times, so every time in them is real.

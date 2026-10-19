@@ -24,7 +24,7 @@ TEST_LEAD = "THIS IS A TEST of the monitor's messages. The numbers below are liv
 
 MAIL_CHECKS = (
     "Once an hour this monitor has TextIt send a test email to a mailbox it reads, and looks "
-    "for it 10 minutes later. Two tests in a row must go missing before this message is sent. "
+    "for it 10 minutes later. Three tests in a row, 10 minutes apart, must go missing before this message is sent. "
     "It does not see the counselors' own inboxes."
 )
 
@@ -147,8 +147,10 @@ def email_check(msg: Message, now: datetime) -> Tuple[str, str]:
         )
         return _finish(subject, body, msg.test)
     tail = "none in the last 2 days" if msg.since is None else f"none since {since}"
-    sent = " and ".join(when(s, now) for s in msg.sent)
-    tests = f"Two tests were sent ({sent}) and neither reached the mailbox.\n" if sent else ""
+    times = [when(s, now) for s in msg.sent]
+    sent = ", ".join(times[:-1]) + " and " + times[-1] if len(times) > 1 else "".join(times)
+    count = {1: "One test was", 2: "Two tests were", 3: "Three tests were"}.get(len(times), f"{len(times)} tests were")
+    tests = f"{count} sent ({sent}) and none reached the mailbox.\n" if times else ""
     last = "No test has arrived in the last 2 days." if msg.since is None else f"The last test that arrived: {since}."
     if msg.kind == "email_alert":
         subject = f"EMAIL NOT ARRIVING: TextIt test emails, {tail}"

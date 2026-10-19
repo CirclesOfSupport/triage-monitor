@@ -7,7 +7,7 @@ all day. Each tick does two things:
    be true (the next-read-due moment kept in memory; an instance with no memory
    reads) and writes one structured log line per tick.
 2. The hourly email check (mailcheck.py), when it is switched on: has TextIt send
-   a test email, looks for it in a mailbox, and says so when two in a row go missing.
+   a test email, looks for it in a mailbox, and says so when three in a row go missing.
 
 When a message is due the service first writes a `notify` log line (a Cloud
 Monitoring policy carries that line as a second copy) and then sends its own plain
@@ -261,7 +261,7 @@ def run_tick(now: datetime, reader=read_requests, test: Optional[str] = None) ->
     test: None for a normal tick.
       "alert" / "ended"   one triage message of that kind, marked TEST, with the live numbers,
                           in addition to the normal tick. Sent one tick apart on purpose.
-      "email_misses"      the email check behaves as if this hour's two tests were missing
+      "email_misses"      the email check behaves as if this hour's three tests were missing
                           (TEST "not arriving"); the next scheduled tick sends the TEST all-clear.
       "email_refused"     asks TextIt to start a flow that does not exist; the refusal is logged
                           and no message goes out.
